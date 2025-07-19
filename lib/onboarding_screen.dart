@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'gradients.dart';
 
 class OnboardingScreen extends StatelessWidget {
   const OnboardingScreen({super.key});
@@ -49,11 +50,17 @@ class OnboardingScreen extends StatelessWidget {
               const Spacer(),
               ElevatedButton(
                 onPressed: () => _goToAuth(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1E88E5),
-                  minimumSize: const Size.fromHeight(48),
+                child: Container(
+                  width: double.infinity,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    gradient: kAccentGradient,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Center(
+                    child: Text('Next', style: TextStyle(fontSize: 18, color: Colors.white)),
+                  ),
                 ),
-                child: const Text('Next', style: TextStyle(fontSize: 18, color: Colors.white)),
               ),
             ],
           ),

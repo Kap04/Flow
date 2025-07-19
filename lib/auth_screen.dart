@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:go_router/go_router.dart';
+import 'gradients.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -153,27 +154,49 @@ class _AuthScreenState extends State<AuthScreen> {
                 SizedBox(
                   width: double.infinity,
                   height: 48,
-                  child: ElevatedButton(
-                    onPressed: _loading ? null : _handleAuth,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1E88E5),
+                  child: GestureDetector(
+                    onTap: _loading ? null : _handleAuth,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: kAccentGradient,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      alignment: Alignment.center,
+                      child: _loading
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : Text(_isLogin ? 'Sign In' : 'Register',
+                              style: const TextStyle(fontSize: 18, color: Colors.white)),
                     ),
-                    child: _loading
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : Text(_isLogin ? 'Sign In' : 'Register',
-                            style: const TextStyle(fontSize: 18, color: Colors.white)),
                   ),
                 ),
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
                   height: 48,
-                  child: OutlinedButton.icon(
-                    onPressed: _loading ? null : _handleGoogleSignIn,
-                    icon: const Icon(Icons.login, color: Color(0xFF1E88E5)),
-                    label: const Text('Sign in with Google', style: TextStyle(color: Colors.white)),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Color(0xFF1E88E5)),
+                  child: GestureDetector(
+                    onTap: _loading ? null : _handleGoogleSignIn,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          width: 2,
+                          style: BorderStyle.solid,
+                          color: Colors.transparent,
+                        ),
+                      ),
+                      child: ShaderMask(
+                        shaderCallback: (Rect bounds) {
+                          return kAccentGradient.createShader(bounds);
+                        },
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Icon(Icons.login, color: Colors.white),
+                            SizedBox(width: 8),
+                            Text('Sign in with Google', style: TextStyle(color: Colors.white)),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),

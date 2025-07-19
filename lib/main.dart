@@ -37,6 +37,15 @@ void main() async {
   runApp(const ProviderScope(child: FlowApp()));
 }
 
+const kAccentGradient = LinearGradient(
+  begin: Alignment.topCenter,
+  end: Alignment.bottomCenter,
+  colors: [
+    Color.fromRGBO(10, 172, 223, 1), // sky blue
+    Color.fromRGBO(73, 191, 195, 1), // aqua green
+  ],
+);
+
 class FlowApp extends StatelessWidget {
   const FlowApp({super.key});
 
@@ -77,9 +86,9 @@ class FlowApp extends StatelessWidget {
       theme: ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: const Color(0xFF000000),
-        primaryColor: const Color(0xFF1E88E5),
+        primaryColor: const Color.fromRGBO(10, 172, 223, 1),
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1E88E5),
+          seedColor: const Color.fromRGBO(10, 172, 223, 1),
           brightness: Brightness.dark,
         ),
         appBarTheme: const AppBarTheme(
@@ -90,6 +99,13 @@ class FlowApp extends StatelessWidget {
         textTheme: const TextTheme(
           titleLarge: TextStyle(fontSize: 24, fontWeight: FontWeight.w500, color: Colors.white),
           bodyMedium: TextStyle(fontSize: 16, color: Colors.white),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ButtonStyle(
+            padding: MaterialStateProperty.all(EdgeInsets.symmetric(vertical: 12)),
+            shape: MaterialStateProperty.all(RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+            backgroundColor: MaterialStateProperty.resolveWith<Color?>((states) => null), // Use gradient in button widget
+          ),
         ),
       ),
       routerConfig: _router,
