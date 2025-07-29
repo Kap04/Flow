@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class SessionState {
   final int duration; // total session length in minutes
@@ -96,4 +98,134 @@ class SessionNotifier extends StateNotifier<SessionState?> {
   }
 }
 
-final sessionProvider = StateNotifierProvider<SessionNotifier, SessionState?>((ref) => SessionNotifier()); 
+final sessionProvider = StateNotifierProvider<SessionNotifier, SessionState?>((ref) => SessionNotifier());
+
+// Focus Score Provider
+final focusScoreProvider = FutureProvider<double>((ref) async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return 0.0;
+  final lookback = ref.watch(_lookbackProvider);
+  final formula = ref.watch(_formulaProvider);
+  // final stretch = ref.watch(_stretchProvider); // Placeholder for future use
+  final snap = await FirebaseFirestore.instance
+      .collection('users')
+      .doc(user.uid)
+      .collection('sessions')
+      .orderBy('endTime', descending: true)
+      .limit(lookback)
+      .get();
+  final sessions = snap.docs
+      .map((doc) => doc.data())
+      .where((data) =>
+          (data['duration'] ?? 0) >= (ref.read(outlierThresholdProvider)) &&
+          (data['aborted'] != true))
+      .toList();
+  if (sessions.isEmpty) return 0.0;
+  if (formula == 'simple') {
+    final avg = sessions.map((s) => (s['duration'] ?? 0) as num).reduce((a, b) => a + b) / sessions.length;
+    return avg.toDouble();
+  } else if (formula == 'median') {
+    final sorted = sessions.map((s) => (s['duration'] ?? 0) as num).toList()..sort();
+    final mid = sorted.length ~/ 2;
+    if (sorted.length % 2 == 1) {
+      return sorted[mid].toDouble();
+    } else {
+      return ((sorted[mid - 1] + sorted[mid]) / 2).toDouble();
+    }
+  } else {
+    // weighted
+    final weights = [0.4, 0.25, 0.15, 0.12, 0.08];
+    double score = 0.0;
+    double totalWeight = 0.0;
+    for (int i = 0; i < sessions.length && i < weights.length; i++) {
+      score += (sessions[i]['duration'] ?? 0) * weights[i];
+      totalWeight += weights[i];
+    }
+    if (sessions.length > weights.length) {
+      for (int i = weights.length; i < sessions.length; i++) {
+        score += (sessions[i]['duration'] ?? 0) * 0.05;
+        totalWeight += 0.05;
+      }
+    }
+    return score / totalWeight;
+  }
+});
+
+// Outlier threshold provider (default 2 min)
+final outlierThresholdProvider = StateProvider<int>((ref) => 2);
+
+// Advanced settings providers
+final _formulaProvider = StateProvider<String>((ref) => 'weighted');
+final _lookbackProvider = StateProvider<int>((ref) => 5);
+final _stretchProvider = StateProvider<String>((ref) => 'adaptive');
+
+// Adaptive stretch session length provider
+final stretchSessionProvider = FutureProvider<int>((ref) async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return 0;
+  final focusScore = await ref.watch(focusScoreProvider.future);
+  final snap = await FirebaseFirestore.instance
+      .collection('users')
+      .doc(user.uid)
+      .collection('sessions')
+      .orderBy('endTime', descending: true)
+      .limit(3)
+      .get();
+  final sessions = snap.docs
+      .map((doc) => doc.data())
+      .where((data) => (data['duration'] ?? 0) > 0 && (data['aborted'] != true) && (data['planned'] ?? 0) > 0)
+      .toList();
+  if (focusScore == 0.0) return 0;
+  final stretchSetting = ref.watch(_stretchProvider);
+  if (stretchSetting == 'off') {
+    return focusScore.round();
+  } else if (stretchSetting == 'fixed') {
+    return (focusScore * 1.05).round();
+  } else {
+    // adaptive
+    if (sessions.isEmpty) return focusScore.round();
+    int completed = 0;
+    for (final s in sessions) {
+      final planned = (s['planned'] ?? s['duration'] ?? 0) as num;
+      final actual = (s['duration'] ?? 0) as num;
+      if (planned == 0) continue;
+      if (actual / planned >= 0.8) completed++;
+    }
+    final rate = completed / sessions.length;
+    double stretch = focusScore;
+    if (rate >= 0.8) {
+      stretch = focusScore * 1.10;
+    } else if (rate >= 0.5) {
+      stretch = focusScore * 1.05;
+    } else {
+      stretch = focusScore * 0.95;
+    }
+    return stretch.round();
+  }
+});
+
+// Completion rate provider for analytics
+final completionRateProvider = FutureProvider<double>((ref) async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return 0.0;
+  final snap = await FirebaseFirestore.instance
+      .collection('users')
+      .doc(user.uid)
+      .collection('sessions')
+      .orderBy('endTime', descending: true)
+      .limit(10)
+      .get();
+  final sessions = snap.docs
+      .map((doc) => doc.data())
+      .where((data) => (data['duration'] ?? 0) > 0 && (data['aborted'] != true) && (data['planned'] ?? 0) > 0)
+      .toList();
+  if (sessions.isEmpty) return 0.0;
+  int completed = 0;
+  for (final s in sessions) {
+    final planned = (s['planned'] ?? s['duration'] ?? 0) as num;
+    final actual = (s['duration'] ?? 0) as num;
+    if (planned == 0) continue;
+    if (actual / planned >= 0.8) completed++;
+  }
+  return completed / sessions.length;
+}); 

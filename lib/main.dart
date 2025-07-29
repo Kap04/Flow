@@ -80,6 +80,10 @@ class FlowApp extends StatelessWidget {
           path: '/history',
           builder: (context, state) => const HistoryScreen(),
         ),
+        GoRoute(
+          path: '/settings',
+          builder: (context, state) => const SettingsScreen(),
+        ),
       ],
     );
     return MaterialApp.router(
@@ -92,7 +96,7 @@ class FlowApp extends StatelessWidget {
           brightness: Brightness.dark,
         ),
         appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF000000),
+        backgroundColor: Color(0xFF000000),
           foregroundColor: Colors.white,
           elevation: 0,
         ),

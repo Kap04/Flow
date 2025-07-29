@@ -27,6 +27,7 @@ dependencies:
   shared_preferences: ^2.5.3
   fl_chart: ^0.66.0
   circular_countdown_timer: ^0.2.3
+  audioplayers: ^6.5.0
 
 dev_dependencies:
   flutter_test:
@@ -37,3 +38,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/
+    - assets/soothing-deep-noise.mp3
