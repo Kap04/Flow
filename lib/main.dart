@@ -11,6 +11,8 @@ import 'auth_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'in_session_screen.dart';
 import 'history_screen.dart';
+import 'sprint_goals_screen.dart';
+import 'sprint_timer_screen.dart';
 
 import 'package:async/async.dart';
 
@@ -79,6 +81,27 @@ class FlowApp extends StatelessWidget {
         GoRoute(
           path: '/history',
           builder: (context, state) => const HistoryScreen(),
+        ),
+        GoRoute(
+          path: '/sprints',
+          builder: (context, state) => const SprintGoalsScreen(),
+        ),
+        GoRoute(
+          path: '/sprint-timer',
+          builder: (context, state) {
+            final goalName = state.uri.queryParameters['goalName'] ?? '';
+            final sprintName = state.uri.queryParameters['sprintName'] ?? '';
+            final durationMinutes = int.tryParse(state.uri.queryParameters['durationMinutes'] ?? '25') ?? 25;
+            final sprintIndex = int.tryParse(state.uri.queryParameters['sprintIndex'] ?? '0') ?? 0;
+            final phase = state.uri.queryParameters['phase'] ?? 'sprint';
+            print('🔍 Route received: goalName=$goalName, sprintName=$sprintName, durationMinutes=$durationMinutes, sprintIndex=$sprintIndex, phase=$phase');
+            return SprintTimerScreen(
+              goalName: goalName,
+              sprintName: sprintName,
+              durationMinutes: durationMinutes,
+              sprintIndex: sprintIndex,
+            );
+          },
         ),
         GoRoute(
           path: '/settings',

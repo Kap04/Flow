@@ -11,6 +11,7 @@ import 'package:circular_countdown_timer/circular_countdown_timer.dart';
 import 'gradients.dart';
 import 'dart:async';
 import 'package:audioplayers/audioplayers.dart';
+import 'timer_widget.dart';
 
 const List<String> kPredefinedTags = ['Study', 'Work', 'Design', 'Other'];
 
@@ -238,6 +239,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
             ),
             ListTile(
+              leading: const Icon(Icons.flag, color: Colors.amber),
+              title: const Text('Sprint Goals', style: TextStyle(color: Colors.white)),
+              onTap: () {
+                Navigator.pop(context);
+                GoRouter.of(context).go('/sprints');
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.bar_chart, color: Colors.grey),
               title: const Text('Analytics', style: TextStyle(color: Colors.white)),
               onTap: () {
@@ -459,35 +468,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ),
                       if (!_isCountingDown && _focusMode == 1)
                         const Icon(Icons.all_inclusive, color: Colors.white, size: 80),
-                      if (_isCountingDown && _focusMode == 0)
-                        CircularCountDownTimer(
-                          duration: totalSeconds,
-                          initialDuration: 0,
-                          controller: _countDownController,
-                          width: 240,
-                          height: 240,
-                          ringColor: Color(0xFF222222),
-                          fillColor: Color.fromRGBO(10, 172, 223, 1),
-                          backgroundColor: const Color(0xFF121212),
-                          strokeWidth: 16.0,
-                          strokeCap: StrokeCap.round,
-                          textStyle: const TextStyle(
-                            fontSize: 44.0,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          isReverse: true,
-                          isReverseAnimation: true,
-                          isTimerTextShown: true,
-                          autoStart: true,
-                          onComplete: _onCountdownComplete,
-                        ),
-                      if (_isCountingDown && _focusMode == 1)
-                        Center(
-                          child: Text(
-                            _formatCountUp(_countUpSeconds),
-                            style: const TextStyle(fontSize: 44, color: Colors.white, fontWeight: FontWeight.bold),
-                          ),
+                      if (_isCountingDown)
+                        TimerWidget(
+                          durationMinutes: _focusMode == 0 ? (_hours * 60 + _minutes) : 0,
+                          mode: _focusMode == 0 ? TimerMode.countdown : TimerMode.countup,
+                          onComplete: _focusMode == 0 ? _onCountdownComplete : null,
+                          onStop: _stopSession,
+                          onAbort: _sessionStartTime != null && DateTime.now().difference(_sessionStartTime!).inSeconds < 60 ? _abortSession : null,
+                          showAbortButton: _sessionStartTime != null && DateTime.now().difference(_sessionStartTime!).inSeconds < 60,
+                          showAmbientSound: true,
+                          sessionName: _sessionName,
+                          tag: _selectedTag,
+                          isPaused: _isPaused,
+                          onPauseResume: (isPaused) {
+                            setState(() {
+                              _isPaused = isPaused;
+                            });
+                          },
+                          onToggleAmbient: () => _toggleAmbient(_ambientSound),
+                          ambientSound: _ambientSound,
                         ),
                       // Tag selector (smaller, translucent, closer to center in countdown)
                       Positioned(
@@ -582,89 +581,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                 ),
               ),
-            if (_isCountingDown)
-              Stack(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            if (_isPaused) {
-                              if (_focusMode == 1) {
-                                // resume count up
-                              }
-                              _countDownController.resume();
-                            } else {
-                              if (_focusMode == 1) {
-                                // pause count up
-                              }
-                              _countDownController.pause();
-                            }
-                            _isPaused = !_isPaused;
-                          });
-                        },
-                        child: Container(
-                          width: 56,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            color: Colors.grey[800],
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.2),
-                                blurRadius: 6,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: Icon(_isPaused ? Icons.play_arrow : Icons.pause, color: Colors.white, size: 32),
-                        ),
-                      ),
-                      const SizedBox(width: 32),
-                      GestureDetector(
-                        onTap: _stopSession,
-                        child: Container(
-                          width: 56,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            color: Colors.white70,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.8),
-                                blurRadius: 6,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],    
-                          ),
-                          child: Center(
-                            child: Container(
-                              width: 21,
-                              height: 21,
-                              decoration: BoxDecoration(
-                                color: Colors.black,
-                                borderRadius: BorderRadius.circular(3),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  // Abort X button for first minute
-                  if (_sessionStartTime != null && DateTime.now().difference(_sessionStartTime!).inSeconds < 60)
-                    Positioned(
-                      right: 0,
-                      child: IconButton(
-                        icon: const Icon(Icons.close, color: Colors.redAccent, size: 32),
-                        tooltip: 'Abort Session',
-                        onPressed: _abortSession,
-                      ),
-                    ),
-                ],
-              ),
+
           ],
         ),
       ),
