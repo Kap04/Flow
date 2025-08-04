@@ -22,6 +22,10 @@ class TimerWidget extends StatefulWidget {
   final VoidCallback? onAddTenMinutes;
   final VoidCallback? onToggleAmbient;
   final bool ambientSound;
+  final bool showSessionName; // New parameter to control session name display
+  final bool showAmbientSoundButton; // New parameter to control ambient sound button in controls
+  final bool showControlButtons; // New parameter to control control buttons display
+  final GlobalKey<TimerWidgetState>? timerKey; // Add key for external access
 
   const TimerWidget({
     super.key,
@@ -40,13 +44,17 @@ class TimerWidget extends StatefulWidget {
     this.onAddTenMinutes,
     this.onToggleAmbient,
     this.ambientSound = false,
+    this.showSessionName = true, // Default to true for backward compatibility
+    this.showAmbientSoundButton = true, // Default to true for backward compatibility
+    this.showControlButtons = true, // Default to true for backward compatibility
+    this.timerKey, // Add key parameter
   });
 
   @override
-  State<TimerWidget> createState() => _TimerWidgetState();
+  State<TimerWidget> createState() => TimerWidgetState();
 }
 
-class _TimerWidgetState extends State<TimerWidget> {
+class TimerWidgetState extends State<TimerWidget> {
   late CountDownController _countDownController;
   late AudioPlayer _audioPlayer;
   bool _initialized = false;
@@ -56,6 +64,21 @@ class _TimerWidgetState extends State<TimerWidget> {
   bool _showAddTimeTooltip = false;
   int _lastDuration = 0;
   String _lastSessionKey = ''; // Track session changes
+
+  // Expose the controller for external control
+  CountDownController get controller => _countDownController;
+  
+  // Method to handle external pause/resume calls
+  void togglePause() {
+    if (widget.mode == TimerMode.countdown) {
+      if (widget.isPaused) {
+        _countDownController.resume();
+      } else {
+        _countDownController.pause();
+      }
+    }
+    widget.onPauseResume?.call(!widget.isPaused);
+  }
 
   @override
   void initState() {
@@ -223,101 +246,104 @@ class _TimerWidgetState extends State<TimerWidget> {
         ),
         
         // Controls
-        Padding(
-          padding: const EdgeInsets.only(bottom: 20),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              // Abort button (only visible if enabled)
-              if (widget.showAbortButton && widget.onAbort != null)
-                GestureDetector(
-                  onTap: widget.onAbort,
-                  child: Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: Colors.red,
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                    child: const Icon(
-                      Icons.close,
-                      color: Colors.white,
-                      size: 30,
-                    ),
-                  ),
-                ),
-              
-              // Pause/Resume
-              if (widget.onPauseResume != null)
-                GestureDetector(
-                  onTap: () {
-                    if (widget.mode == TimerMode.countdown) {
-                      if (widget.isPaused) {
-                        _countDownController.resume();
-                      } else {
-                        _countDownController.pause();
-                      }
-                    }
-                    widget.onPauseResume!(!widget.isPaused);
-                  },
-                  child: Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      gradient: kAccentGradient,
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                    child: Icon(
-                      widget.isPaused ? Icons.play_arrow : Icons.pause,
-                      color: Colors.white,
-                      size: 30,
-                    ),
-                  ),
-                ),
-              
-              // Stop
-              if (widget.onStop != null)
-                GestureDetector(
-                  onTap: widget.onStop,
-                  child: Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(30),
-                    ),
+        if (widget.showControlButtons)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 20),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                // Abort button (only visible if enabled)
+                if (widget.showAbortButton && widget.onAbort != null)
+                  GestureDetector(
+                    onTap: widget.onAbort,
                     child: Container(
-                      width: 20,
-                      height: 20,
+                      width: 60,
+                      height: 60,
                       decoration: BoxDecoration(
-                        color: Colors.black,
-                        borderRadius: BorderRadius.circular(4),
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      child: const Icon(
+                        Icons.close,
+                        color: Colors.white,
+                        size: 30,
                       ),
                     ),
                   ),
-                ),
-              
-              // Ambient Sound
-              if (widget.showAmbientSound && widget.onToggleAmbient != null)
-                GestureDetector(
-                  onTap: widget.onToggleAmbient,
-                  child: Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: widget.ambientSound ? Colors.blue : Colors.grey[800],
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                    child: Icon(
-                      Icons.volume_up,
-                      color: widget.ambientSound ? Colors.white : Colors.grey,
-                      size: 30,
+                
+                // Pause/Resume
+                if (widget.onPauseResume != null)
+                  GestureDetector(
+                    onTap: () {
+                      if (widget.mode == TimerMode.countdown) {
+                        if (widget.isPaused) {
+                          _countDownController.resume();
+                        } else {
+                          _countDownController.pause();
+                        }
+                      }
+                      widget.onPauseResume!(!widget.isPaused);
+                    },
+                    child: Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        gradient: kAccentGradient,
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      child: Icon(
+                        widget.isPaused ? Icons.play_arrow : Icons.pause,
+                        color: Colors.white,
+                        size: 30,
+                      ),
                     ),
                   ),
-                ),
-            ],
+                
+                // Stop
+                if (widget.onStop != null)
+                  GestureDetector(
+                    onTap: widget.onStop,
+                    child: Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      child: Center(
+                        child: Container(
+                          width: 20,
+                          height: 20,
+                          decoration: BoxDecoration(
+                            color: Colors.black,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                
+                // Ambient Sound
+                if (widget.showAmbientSound && widget.onToggleAmbient != null && widget.showAmbientSoundButton)
+                  GestureDetector(
+                    onTap: widget.onToggleAmbient,
+                    child: Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: widget.ambientSound ? Colors.blue : Colors.grey[800],
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      child: Icon(
+                        Icons.volume_up,
+                        color: widget.ambientSound ? Colors.white : Colors.grey,
+                        size: 30,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
-        ),
       ],
     );
   }

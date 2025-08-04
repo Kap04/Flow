@@ -46,6 +46,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   late FixedExtentScrollController _minutesController;
   bool _programmaticDialSet = false;
   bool _stretchAppliedOnce = false;
+  final GlobalKey<TimerWidgetState> _timerKey = GlobalKey<TimerWidgetState>();
 
   @override
   void initState() {
@@ -113,8 +114,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         });
       }
       _abortTimer?.cancel();
-      _abortTimer = Timer(const Duration(seconds: 61), () {
-        setState(() {});
+      _abortTimer = Timer(const Duration(seconds: 60), () {
+        setState(() {
+          // This will trigger a rebuild and hide the abort button
+        });
       });
     });
   }
@@ -333,6 +336,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ],
             ),
             const SizedBox(height: 8),
+            
             Expanded(
               child: Center(
                 child: SizedBox(
@@ -470,6 +474,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         const Icon(Icons.all_inclusive, color: Colors.white, size: 80),
                       if (_isCountingDown)
                         TimerWidget(
+                          key: _timerKey,
                           durationMinutes: _focusMode == 0 ? (_hours * 60 + _minutes) : 0,
                           mode: _focusMode == 0 ? TimerMode.countdown : TimerMode.countup,
                           onComplete: _focusMode == 0 ? _onCountdownComplete : null,
@@ -487,6 +492,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           },
                           onToggleAmbient: () => _toggleAmbient(_ambientSound),
                           ambientSound: _ambientSound,
+                          showAmbientSoundButton: false, // Hide ambient sound button since we have toggle below
+                          showControlButtons: false, // Hide control buttons since we'll add them separately at the bottom
+                          timerKey: _timerKey,
                         ),
                       // Tag selector (smaller, translucent, closer to center in countdown)
                       Positioned(
@@ -528,44 +536,157 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 24),
-            // Session name input
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8.0),
-              child: TextField(
-                enabled: !_isCountingDown,
-                onChanged: (v) => setState(() => _sessionName = v),
-                decoration: InputDecoration(
-                  hintText: 'Session name',
-                  hintStyle: const TextStyle(color: Colors.white54),
-                  filled: true,
-                  fillColor: Colors.grey[900],
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide.none,
+            
+            // Session name input (below timer when counting down)
+            if (_isCountingDown) ...[
+              const SizedBox(height: 24),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                child: TextField(
+                  enabled: false, // Disabled during session
+                  controller: TextEditingController(text: _sessionName),
+                  decoration: InputDecoration(
+                    hintText: 'Session name',
+                    hintStyle: const TextStyle(color: Colors.white54),
+                    filled: true,
+                    fillColor: Colors.grey[900],
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
                 ),
-                style: const TextStyle(color: Colors.white, fontSize: 16),
               ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text('Ambient Sound', style: TextStyle(color: Colors.white, fontSize: 16)),
-                const SizedBox(width: 12),
-                Switch(
-                  value: _ambientSound,
-                  onChanged: (v) => _toggleAmbient(v),
-                  activeColor: Colors.grey,
-                  trackOutlineColor: MaterialStateProperty.all(Colors.transparent),
-                  trackColor: MaterialStateProperty.all(Colors.white24),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('Ambient Sound', style: TextStyle(color: Colors.white, fontSize: 16)),
+                  const SizedBox(width: 12),
+                  Switch(
+                    value: _ambientSound,
+                    onChanged: (v) => _toggleAmbient(v),
+                    activeColor: Colors.grey,
+                    trackOutlineColor: MaterialStateProperty.all(Colors.transparent),
+                    trackColor: MaterialStateProperty.all(Colors.white24),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              
+              // Control buttons at the very bottom for individual timer
+              Padding(
+                padding: const EdgeInsets.only(bottom: 20),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    // Abort button
+                    if (_sessionStartTime != null && DateTime.now().difference(_sessionStartTime!).inSeconds < 60)
+                      GestureDetector(
+                        onTap: _abortSession,
+                        child: Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                          child: const Icon(
+                            Icons.close,
+                            color: Colors.white,
+                            size: 30,
+                          ),
+                        ),
+                      ),
+                    
+                    // Pause/Resume
+                    GestureDetector(
+                      onTap: () {
+                        // Call the TimerWidget's togglePause method
+                        _timerKey.currentState?.togglePause();
+                      },
+                      child: Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          gradient: kAccentGradient,
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        child: Icon(
+                          _isPaused ? Icons.play_arrow : Icons.pause,
+                          color: Colors.white,
+                          size: 30,
+                        ),
+                      ),
+                    ),
+                    
+                    // Stop
+                    GestureDetector(
+                      onTap: _stopSession,
+                      child: Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        child: Center(
+                          child: Container(
+                            width: 20,
+                            height: 20,
+                            decoration: BoxDecoration(
+                              color: Colors.black,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            if (!_isCountingDown)
+              ),
+            ],
+            
+            // Session name input (below timer when not counting down)
+            if (!_isCountingDown) ...[
+              const SizedBox(height: 24),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                child: TextField(
+                  enabled: !_isCountingDown,
+                  onChanged: (v) => setState(() => _sessionName = v),
+                  decoration: InputDecoration(
+                    hintText: 'debugging',
+                    hintStyle: const TextStyle(color: Colors.white54),
+                    filled: true,
+                    fillColor: Colors.grey[900],
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide.none,
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                  ),
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('Ambient Sound', style: TextStyle(color: Colors.white, fontSize: 16)),
+                  const SizedBox(width: 12),
+                  Switch(
+                    value: _ambientSound,
+                    onChanged: (v) => _toggleAmbient(v),
+                    activeColor: Colors.grey,
+                    trackOutlineColor: MaterialStateProperty.all(Colors.transparent),
+                    trackColor: MaterialStateProperty.all(Colors.white24),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
                 height: 48,
@@ -581,6 +702,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                 ),
               ),
+            ],
 
           ],
         ),

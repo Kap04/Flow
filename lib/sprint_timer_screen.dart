@@ -31,10 +31,11 @@ class SprintTimerScreen extends ConsumerStatefulWidget {
 }
 
 class _SprintTimerScreenState extends ConsumerState<SprintTimerScreen> {
-  late AudioPlayer _audioPlayer;
-  bool _ambientSound = false;
   bool _isPaused = false;
+  bool _ambientSound = false;
   bool _showAbortButton = true;
+  late AudioPlayer _audioPlayer;
+  final GlobalKey<TimerWidgetState> _timerKey = GlobalKey<TimerWidgetState>();
 
   @override
   void initState() {
@@ -184,8 +185,8 @@ class _SprintTimerScreenState extends ConsumerState<SprintTimerScreen> {
               
               // Timer
               Expanded(
-                                child: TimerWidget(
-                  key: ValueKey('${widget.goalName}-${widget.sprintName}-${widget.durationMinutes}'),
+                child: TimerWidget(
+                  key: _timerKey,
                   durationMinutes: widget.durationMinutes,
                   mode: TimerMode.countdown,
                   onComplete: _onCountdownComplete,
@@ -205,10 +206,103 @@ class _SprintTimerScreenState extends ConsumerState<SprintTimerScreen> {
                   onAddTenMinutes: _addTenMinutes,
                   onToggleAmbient: () => _toggleAmbient(),
                   ambientSound: _ambientSound,
+                  showSessionName: false, // Hide session name for sprint goals
+                  showAmbientSoundButton: false, // Hide ambient sound button since we'll add it separately
+                  showControlButtons: false, // Hide control buttons since we'll add them separately
+                  timerKey: _timerKey,
                 ),
               ),
               
-
+              // Ambient Sound Toggle for Sprint Goals (below timer)
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('Ambient Sound', style: TextStyle(color: Colors.white, fontSize: 16)),
+                  const SizedBox(width: 12),
+                  Switch(
+                    value: _ambientSound,
+                    onChanged: (v) => _toggleAmbient(),
+                    activeColor: Colors.grey,
+                    trackOutlineColor: MaterialStateProperty.all(Colors.transparent),
+                    trackColor: MaterialStateProperty.all(Colors.white24),
+                  ),
+                ],
+              ),
+              
+              // Control buttons at the bottom for sprint goals
+              const SizedBox(height: 24),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 20),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    // Abort button
+                    if (_showAbortButton)
+                      GestureDetector(
+                        onTap: _showAbortDialog,
+                        child: Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                          child: const Icon(
+                            Icons.close,
+                            color: Colors.white,
+                            size: 30,
+                          ),
+                        ),
+                      ),
+                    
+                    // Pause/Resume
+                    GestureDetector(
+                      onTap: () {
+                        // Call the TimerWidget's togglePause method
+                        _timerKey.currentState?.togglePause();
+                      },
+                      child: Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          gradient: kAccentGradient,
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        child: Icon(
+                          _isPaused ? Icons.play_arrow : Icons.pause,
+                          color: Colors.white,
+                          size: 30,
+                        ),
+                      ),
+                    ),
+                    
+                    // Stop
+                    GestureDetector(
+                      onTap: _stopSession,
+                      child: Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        child: Center(
+                          child: Container(
+                            width: 20,
+                            height: 20,
+                            decoration: BoxDecoration(
+                              color: Colors.black,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
             ],
           ),
         ),
