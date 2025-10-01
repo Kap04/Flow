@@ -3,6 +3,8 @@ import 'package:circular_countdown_timer/circular_countdown_timer.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'dart:async';
 import 'gradients.dart';
+import 'dnd_helper.dart';
+import 'package:flutter/services.dart';
 
 enum TimerMode { countdown, countup }
 
@@ -21,6 +23,7 @@ class TimerWidget extends StatefulWidget {
   final Function(bool)? onPauseResume;
   final VoidCallback? onAddTenMinutes;
   final VoidCallback? onToggleAmbient;
+  final VoidCallback? onToggleDnd; // optional external hook when DND toggled
   final bool ambientSound;
   final bool showSessionName; // New parameter to control session name display
   final bool showAmbientSoundButton; // New parameter to control ambient sound button in controls
@@ -42,7 +45,8 @@ class TimerWidget extends StatefulWidget {
     this.isPaused = false,
     this.onPauseResume,
     this.onAddTenMinutes,
-    this.onToggleAmbient,
+  this.onToggleAmbient,
+  this.onToggleDnd,
     this.ambientSound = false,
     this.showSessionName = true, // Default to true for backward compatibility
     this.showAmbientSoundButton = true, // Default to true for backward compatibility
@@ -64,6 +68,7 @@ class TimerWidgetState extends State<TimerWidget> {
   bool _showAddTimeTooltip = false;
   int _lastDuration = 0;
   String _lastSessionKey = ''; // Track session changes
+  bool _dndEnabledByApp = false; // track if app enabled DND
 
   // Expose the controller for external control
   CountDownController get controller => _countDownController;
@@ -341,6 +346,53 @@ class TimerWidgetState extends State<TimerWidget> {
                       ),
                     ),
                   ),
+                // Do Not Disturb toggle
+                GestureDetector(
+                  onTap: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    try {
+                      // Check access
+                      final granted = await DndHelper.isAccessGranted();
+                      if (!granted) {
+                        // open settings so user can grant
+                        await DndHelper.openSettings();
+                        return;
+                      }
+                      if (!_dndEnabledByApp) {
+                        await DndHelper.enableDnd();
+                        _dndEnabledByApp = true;
+                        widget.onToggleDnd?.call();
+                        setState(() {});
+                      } else {
+                        await DndHelper.disableDnd();
+                        _dndEnabledByApp = false;
+                        widget.onToggleDnd?.call();
+                        setState(() {});
+                      }
+                    } catch (e) {
+                      // ignore: avoid_print
+                      print('TimerWidget: DND action failed: $e');
+                      if (e is MissingPluginException) {
+                        messenger.showSnackBar(const SnackBar(content: Text('DND native handler not available — stop and rebuild the app to enable.')));
+                      } else {
+                        messenger.showSnackBar(const SnackBar(content: Text('DND action failed')));
+                      }
+                    }
+                  },
+                  child: Container(
+                    width: 60,
+                    height: 60,
+                    decoration: BoxDecoration(
+                      color: _dndEnabledByApp ? Colors.redAccent : Colors.grey[800],
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                    child: Icon(
+                      Icons.do_not_disturb_on,
+                      color: _dndEnabledByApp ? Colors.white : Colors.grey,
+                      size: 28,
+                    ),
+                  ),
+                ),
               ],
             ),
           ),

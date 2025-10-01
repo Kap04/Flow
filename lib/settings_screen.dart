@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'session_provider.dart';
+import 'app_drawer.dart';
+import 'package:go_router/go_router.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -15,6 +17,13 @@ class SettingsScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+          onPressed: () {
+            // Use GoRouter for navigation
+            GoRouter.of(context).go('/home');
+          },
+        ),
         title: const Text('Settings', style: TextStyle(fontSize: 24, color: Colors.white)),
         backgroundColor: Colors.transparent,
         elevation: 0,

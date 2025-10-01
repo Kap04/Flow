@@ -153,6 +153,77 @@ class _SessionSummaryModalState extends ConsumerState<SessionSummaryModal> {
         'distracted': session.distracted,
         'createdAt': FieldValue.serverTimestamp(),
       });
+      // Recompute and update focusScore on the user's root document so leaderboard stays current
+      try {
+        final snap = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('sessions')
+            .orderBy('endTime', descending: true)
+            .limit(10)
+            .get();
+  final allSessions = snap.docs.map((d) => d.data()).toList();
+        num _extractDuration(dynamic v) {
+          if (v == null) return 0;
+          if (v is num) return v;
+          if (v is String) return num.tryParse(v) ?? 0;
+          return 0;
+        }
+        final sessions = allSessions.where((data) {
+          final dur = _extractDuration(data['duration']);
+          final distracted = data['distracted'] == true;
+          return dur >= 2 && !distracted;
+        }).toList();
+  // Diagnostic logging
+  // ignore: avoid_print
+  print('Recomputing focusScore for ${user.uid}: total sessions=${allSessions.length}, usable=${sessions.length}');
+  // print full session docs to inspect keys and types
+  // ignore: avoid_print
+  print('All session docs: $allSessions');
+  // list durations
+  // ignore: avoid_print
+  print('Durations: ${sessions.map((s) => s['duration']).toList()}');
+        double score = 0.0;
+        double totalWeight = 0.0;
+        final weights = [0.4, 0.25, 0.15, 0.12, 0.08];
+        for (int i = 0; i < sessions.length && i < weights.length; i++) {
+          final dur = _extractDuration(sessions[i]['duration']);
+          score += dur * weights[i];
+          totalWeight += weights[i];
+        }
+        if (sessions.length > weights.length) {
+          for (int i = weights.length; i < sessions.length; i++) {
+            final dur = _extractDuration(sessions[i]['duration']);
+            score += dur * 0.05;
+            totalWeight += 0.05;
+          }
+        }
+        double focusScore = totalWeight > 0 ? score / totalWeight : 0.0;
+        // ignore: avoid_print
+        print('Computed focusScore=$focusScore for ${user.uid}');
+        // Try a simple set first
+        try {
+          await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+            'focusScore': double.parse(focusScore.toStringAsFixed(2)),
+            'lastUpdatedFocusAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        } catch (e) {
+          // ignore: avoid_print
+          print('Simple set failed, trying transaction: $e');
+          // fallback to transaction
+          await FirebaseFirestore.instance.runTransaction((tx) async {
+            final docRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+            final snapshot = await tx.get(docRef);
+            final existing = snapshot.exists ? snapshot.data() ?? {} : {};
+            final merged = {...existing, 'focusScore': double.parse(focusScore.toStringAsFixed(2)), 'lastUpdatedFocusAt': FieldValue.serverTimestamp()};
+            tx.set(docRef, merged);
+          });
+        }
+      } catch (e, st) {
+        // non-fatal: don't block session save on score update
+        // ignore: avoid_print
+        print('Failed to update focusScore (outer): $e\n$st');
+      }
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       setState(() { _error = e.toString(); });

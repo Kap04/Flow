@@ -4,91 +4,73 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'session_provider.dart';
+import 'app_drawer.dart';
+import 'package:go_router/go_router.dart';
+
+// Time range selector for analytics
+enum TimeRange { today, week, month, all }
 
 class HistoryScreen extends ConsumerWidget {
   const HistoryScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final ValueNotifier<TimeRange> range = ValueNotifier(TimeRange.week);
     final user = FirebaseAuth.instance.currentUser;
     final focusScoreAsync = ref.watch(focusScoreProvider);
     final completionRateAsync = ref.watch(completionRateProvider);
     if (user == null) {
-      return const Scaffold(
-        backgroundColor: Colors.black,
-        body: Center(child: Text('Not signed in', style: TextStyle(color: Colors.white))),
+      return const Center(
+        child: Text('Please log in to view your analytics.', style: TextStyle(color: Colors.white70, fontSize: 18)),
       );
     }
-    final sessionsRef = FirebaseFirestore.instance
-        .collection('users')
-        .doc(user.uid)
-        .collection('sessions')
-        .orderBy('startTime', descending: true);
-
+    final sessionsRef = FirebaseFirestore.instance.collection('users').doc(user.uid).collection('sessions');
     return Scaffold(
       backgroundColor: Colors.black,
+      drawer: const AppDrawer(),
       appBar: AppBar(
-        title: const Text('History & Stats', style: TextStyle(fontSize: 24, color: Colors.white)),
         backgroundColor: Colors.transparent,
         elevation: 0,
-      ),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-            child: Card(
-              color: const Color(0xFF121212),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Focus score', style: TextStyle(color: Colors.white54, fontSize: 14)),
-                    focusScoreAsync.when(
-                      data: (score) => Text(
-                        score.toStringAsFixed(1),
-                        style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
-                      ),
-                      loading: () => const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)),
-                      error: (e, _) => const Text('-', style: TextStyle(color: Colors.white)),
-                    ),
-                    const SizedBox(height: 4),
-                    const Text('Weighted average of your last few sessions (excludes aborted/outliers).', style: TextStyle(color: Colors.white38, fontSize: 12)),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        const Text('Completion rate:', style: TextStyle(color: Colors.white54, fontSize: 14)),
-                        const SizedBox(width: 8),
-                        completionRateAsync.when(
-                          data: (rate) => Text('${(rate * 100).toStringAsFixed(0)}%', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                          loading: () => const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-                          error: (e, _) => const Text('-', style: TextStyle(color: Colors.white)),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: const Text('Analytics', style: TextStyle(color: Colors.white)),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            tooltip: 'Refresh analytics',
+            onPressed: () async {
+              // show an immediate snack
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Refreshing analytics...'), duration: Duration(seconds: 1)));
+              try {
+                // force recompute of focus score and dependent providers
+                await ref.refresh(focusScoreProvider.future);
+                // also refresh completion rate and stretch providers to ensure KPI update
+                await ref.refresh(completionRateProvider.future);
+                await ref.refresh(stretchSessionProvider.future);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Analytics refreshed'), duration: Duration(seconds: 1)));
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Refresh failed: $e')));
+              }
+            },
           ),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: sessionsRef.snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return const Center(
-                    child: Text(
-                      'No sessions yet\nStart your first focus session!',
-                      style: TextStyle(color: Colors.white70, fontSize: 18),
-                      textAlign: TextAlign.center,
-                    ),
-                  );
-                }
+        ],
+      ),
+      body: ValueListenableBuilder<TimeRange>(
+        valueListenable: range,
+        builder: (context, selectedRange, _) {
+          return StreamBuilder<QuerySnapshot>(
+            stream: sessionsRef.snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              } else if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                return const Center(
+                  child: Text(
+                    'No sessions yet\nStart your first focus session!',
+                    style: TextStyle(color: Colors.white70, fontSize: 18),
+                    textAlign: TextAlign.center,
+                  ),
+                );
+              } else {
                 final sessions = snapshot.data!.docs;
                 // --- Stats Calculation ---
                 int totalMinutes = 0;
@@ -110,12 +92,10 @@ class HistoryScreen extends ConsumerWidget {
                   final endTime = (data['endTime'] as Timestamp?)?.toDate();
                   final distracted = data['distracted'] == true;
                   if (distracted) {
-                    // Count if in the last 7 days
                     if (endTime != null && endTime.isAfter(DateTime.now().subtract(const Duration(days: 7)))) {
                       deepFocusFails++;
                     }
                   }
-                  // Streak calculation (consecutive days)
                   if (endTime != null) {
                     final day = DateTime(endTime.year, endTime.month, endTime.day);
                     focusPerDay[day] = (focusPerDay[day] ?? 0) + duration;
@@ -123,14 +103,12 @@ class HistoryScreen extends ConsumerWidget {
                       streak++;
                       lastDate = day;
                     }
-                    // Longest session
                     if (duration > longestSession) {
                       longestSession = duration;
                       longestSessionDate = endTime;
                     }
                   }
                 }
-                // Best day
                 focusPerDay.forEach((day, minutes) {
                   if (minutes > bestDayMinutes) {
                     bestDayMinutes = minutes;
@@ -146,237 +124,205 @@ class HistoryScreen extends ConsumerWidget {
                 });
                 final lineSpots = last7Days
                     .map((d) => FlSpot(
-                        d.millisecondsSinceEpoch.toDouble(),
-                        (focusPerDay[d] ?? 0).toDouble()))
+                    d.millisecondsSinceEpoch.toDouble(),
+                    (focusPerDay[d] ?? 0).toDouble()))
                     .toList();
 
                 // --- Tag Breakdown List ---
                 final sortedTags = tagMinutes.entries.toList()
                   ..sort((a, b) => b.value.compareTo(a.value));
 
-                return ListView(
-                  padding: const EdgeInsets.all(16),
+                // --- UI: KPI Row, Range Selector, Analytics ---
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // --- Top Stats Card ---
-                    Card(
-                      color: const Color(0xFF121212),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
+                    // --- KPI Row ---
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                      child: Row(
+                        children: [
+                          _KpiCard(
+                            title: 'Focus Score',
+                            value: focusScoreAsync.when(
+                              data: (score) => score.toStringAsFixed(1),
+                              loading: () => '...',
+                              error: (e, _) => '-',
+                            ),
+                            tooltip: 'Weighted average of your last few sessions (excludes aborted/outliers).',
+                          ),
+                          _KpiCard(
+                            title: 'Total Focus',
+                            value: totalMinutes > 0 ? '$totalMinutes min' : '-',
+                            tooltip: 'Total minutes focused in selected range.',
+                          ),
+                          _KpiCard(
+                            title: 'Streak',
+                            value: streak > 0 ? '$streak' : '-',
+                            tooltip: 'Consecutive days with at least one session.',
+                          ),
+                        ],
+                      ),
+                    ),
+                    // --- Time Range Selector (moved down) ---
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8, left: 8, right: 8, bottom: 0),
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
                         child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
                           children: [
-                            _statColumn('Total\nFocus', '$totalMinutes min', accent: true),
-                            _statColumn('Sessions', '${sessions.length}'),
-                            _statColumn('Streak', '$streak'),
-                            _statColumn(
-                              'Distractions',
-                              '$deepFocusFails',
-                              accent: deepFocusFails > 0,
-                              accentColor: Colors.redAccent,
-                            ),
+                            _RangeButton(label: 'Today', selected: selectedRange == TimeRange.today, onTap: () => range.value = TimeRange.today),
+                            _RangeButton(label: '7d', selected: selectedRange == TimeRange.week, onTap: () => range.value = TimeRange.week),
+                            _RangeButton(label: '30d', selected: selectedRange == TimeRange.month, onTap: () => range.value = TimeRange.month),
+                            _RangeButton(label: 'All', selected: selectedRange == TimeRange.all, onTap: () => range.value = TimeRange.all),
                           ],
                         ),
                       ),
                     ),
-                    const SizedBox(height: 20),
-                    // --- Focus Trend Line Chart ---
-                    Card(
-                      color: const Color(0xFF121212),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      child: Padding(
+                    // --- Analytics Content ---
+                    Expanded(
+                      child: ListView(
                         padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Focus Trend (Last 7 Days)', style: TextStyle(color: Colors.white, fontSize: 16)),
-                            const SizedBox(height: 12),
-                            SizedBox(
-                              height: 180,
-                              child: LineChart(
-                                LineChartData(
-                                  gridData: FlGridData(show: false),
-                                  borderData: FlBorderData(show: false),
-                                  titlesData: FlTitlesData(
-                                    leftTitles: AxisTitles(
-                                      sideTitles: SideTitles(
-                                        showTitles: true,
-                                        reservedSize: 32,
-                                        getTitlesWidget: (value, meta) => Text(
-                                          value.toInt().toString(),
-                                          style: const TextStyle(color: Colors.white54, fontSize: 12),
-                                        ),
-                                      ),
-                                    ),
-                                    bottomTitles: AxisTitles(
-                                      sideTitles: SideTitles(
-                                        showTitles: true,
-                                        getTitlesWidget: (value, meta) {
-                                          final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
-                                          return Padding(
-                                            padding: const EdgeInsets.only(top: 8),
-                                            child: Text(
-                                              '${date.month}/${date.day}',
-                                              style: const TextStyle(color: Colors.white54, fontSize: 12),
+                        children: [
+                          // --- Focus Trend Line Chart ---
+                          Card(
+                            color: const Color(0xFF121212),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Focus Trend (Last 7 Days)', style: TextStyle(color: Colors.white, fontSize: 16)),
+                                  const SizedBox(height: 12),
+                                  SizedBox(
+                                    height: 180,
+                                    child: LineChart(
+                                      LineChartData(
+                                        gridData: FlGridData(show: false),
+                                        borderData: FlBorderData(show: false),
+                                        titlesData: FlTitlesData(
+                                          leftTitles: AxisTitles(
+                                            sideTitles: SideTitles(
+                                              showTitles: true,
+                                              reservedSize: 32,
+                                              getTitlesWidget: (value, meta) => Text(
+                                                value.toInt().toString(),
+                                                style: const TextStyle(color: Colors.white54, fontSize: 12),
+                                              ),
                                             ),
-                                          );
-                                        },
-                                        interval: (last7Days[1].millisecondsSinceEpoch - last7Days[0].millisecondsSinceEpoch).toDouble(),
+                                          ),
+                                          bottomTitles: AxisTitles(
+                                            sideTitles: SideTitles(
+                                              showTitles: true,
+                                              getTitlesWidget: (value, meta) {
+                                                final date = DateTime.fromMillisecondsSinceEpoch(value.toInt());
+                                                return Padding(
+                                                  padding: const EdgeInsets.only(top: 8),
+                                                  child: Text(
+                                                    '${date.month}/${date.day}',
+                                                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                                                  ),
+                                                );
+                                              },
+                                              interval: (last7Days[1].millisecondsSinceEpoch - last7Days[0].millisecondsSinceEpoch).toDouble(),
+                                            ),
+                                          ),
+                                          rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                          topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                                        ),
+                                        minX: last7Days.first.millisecondsSinceEpoch.toDouble(),
+                                        maxX: last7Days.last.millisecondsSinceEpoch.toDouble(),
+                                        minY: 0,
+                                        maxY: (lineSpots.map((e) => e.y).reduce((a, b) => a > b ? a : b) + 10).clamp(30, 120),
+                                        lineBarsData: [
+                                          LineChartBarData(
+                                            spots: lineSpots,
+                                            isCurved: true,
+                                            color: const Color(0xFF1E88E5),
+                                            barWidth: 4,
+                                            dotData: FlDotData(show: false),
+                                          ),
+                                        ],
                                       ),
                                     ),
-                                    rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                                    topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
                                   ),
-                                  minX: last7Days.first.millisecondsSinceEpoch.toDouble(),
-                                  maxX: last7Days.last.millisecondsSinceEpoch.toDouble(),
-                                  minY: 0,
-                                  maxY: (lineSpots.map((e) => e.y).reduce((a, b) => a > b ? a : b) + 10).clamp(30, 120),
-                                  lineBarsData: [
-                                    LineChartBarData(
-                                      spots: lineSpots,
-                                      isCurved: true,
-                                      color: const Color(0xFF1E88E5),
-                                      barWidth: 4,
-                                      dotData: FlDotData(show: false),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    // --- Highlight Cards ---
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Card(
-                            color: const Color(0xFF121212),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Column(
-                                children: [
-                                  const Text('Longest Session', style: TextStyle(color: Colors.white70)),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    longestSession > 0 ? '$longestSession min' : '-',
-                                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                                  ),
-                                  if (longestSessionDate != null)
-                                    Text(
-                                      '${longestSessionDate!.month}/${longestSessionDate!.day}',
-                                      style: const TextStyle(color: Colors.white54, fontSize: 12),
-                                    ),
                                 ],
                               ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Card(
+                          const SizedBox(height: 20),
+                          // --- Tag Breakdown (show all tags ever used) ---
+                          Card(
                             color: const Color(0xFF121212),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                             child: Padding(
-                              padding: const EdgeInsets.all(12),
+                              padding: const EdgeInsets.all(16),
                               child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Best Day', style: TextStyle(color: Colors.white70)),
+                                  const Text('Tag Breakdown', style: TextStyle(color: Colors.white, fontSize: 16)),
                                   const SizedBox(height: 8),
-                                  Text(
-                                    bestDayMinutes > 0 ? '$bestDayMinutes min' : '-',
-                                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                                  ),
-                                  if (bestDayDate != null)
-                                    Text(
-                                      '${bestDayDate!.month}/${bestDayDate!.day}',
-                                      style: const TextStyle(color: Colors.white54, fontSize: 12),
-                                    ),
+                                  ...{
+                                    ...sessions.map((doc) => (doc.data() as Map<String, dynamic>)['tag'] ?? 'Other'),
+                                    ...tagMinutes.keys
+                                  }.map((tag) {
+                                    final highlightTag = sortedTags.isNotEmpty ? sortedTags.first.key : null;
+                                    return Row(
+                                      children: [
+                                        Container(
+                                          width: 12,
+                                          height: 12,
+                                          margin: const EdgeInsets.only(right: 8),
+                                          decoration: BoxDecoration(
+                                            color: tag == highlightTag ? const Color(0xFF1E88E5) : Colors.white24,
+                                            borderRadius: BorderRadius.circular(3),
+                                          ),
+                                        ),
+                                        Text(
+                                          '$tag: ${tagMinutes[tag] ?? 0} min',
+                                          style: TextStyle(
+                                            color: tag == highlightTag ? const Color(0xFF1E88E5) : Colors.white70,
+                                            fontWeight: tag == highlightTag ? FontWeight.bold : FontWeight.normal,
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  }),
                                 ],
                               ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    // --- Tag Breakdown ---
-                    Card(
-                      color: const Color(0xFF121212),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Tag Breakdown', style: TextStyle(color: Colors.white, fontSize: 16)),
-                            const SizedBox(height: 8),
-                            ...sortedTags.map((e) => Row(
-                              children: [
-                                Container(
-                                  width: 12,
-                                  height: 12,
-                                  margin: const EdgeInsets.only(right: 8),
-                                  decoration: BoxDecoration(
-                                    color: e.key == sortedTags.first.key ? const Color(0xFF1E88E5) : Colors.white24,
-                                    borderRadius: BorderRadius.circular(3),
-                                  ),
+                          const SizedBox(height: 20),
+                          // --- Recent Sessions List ---
+                          const Text('Recent Sessions', style: TextStyle(color: Colors.white, fontSize: 18)),
+                          const SizedBox(height: 8),
+                          ...sessions.map((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            final start = (data['startTime'] as Timestamp?)?.toDate();
+                            final tag = data['tag'] ?? '';
+                            final duration = data['duration'] ?? 0;
+                            return Card(
+                              color: const Color(0xFF121212),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              child: ListTile(
+                                title: Text('$tag  •  $duration min', style: const TextStyle(color: Colors.white)),
+                                subtitle: Text(
+                                  start != null ? start.toLocal().toString().split(" ")[0] : '',
+                                  style: const TextStyle(color: Colors.white70),
                                 ),
-                                Text(
-                                  '${e.key}: ${e.value} min',
-                                  style: TextStyle(
-                                    color: e.key == sortedTags.first.key ? const Color(0xFF1E88E5) : Colors.white70,
-                                    fontWeight: e.key == sortedTags.first.key ? FontWeight.bold : FontWeight.normal,
-                                  ),
-                                ),
-                              ],
-                            )),
-                          ],
-                        ),
+                              ),
+                            );
+                          }),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 20),
-                    // --- Recent Sessions List ---
-                    const Text('Recent Sessions', style: TextStyle(color: Colors.white, fontSize: 18)),
-                    const SizedBox(height: 8),
-                    ...sessions.map((doc) {
-                      final data = doc.data() as Map<String, dynamic>;
-                      final start = (data['startTime'] as Timestamp?)?.toDate();
-                      final tag = data['tag'] ?? '';
-                      final mood = data['mood'] ?? '';
-                      final duration = data['duration'] ?? 0;
-                      final distracted = data['distracted'] == true;
-                      return Card(
-                        color: const Color(0xFF121212),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        child: ListTile(
-                          leading: distracted
-                              ? const Icon(Icons.warning, color: Colors.redAccent)
-                              : null,
-                          title: Text('$tag  •  $duration min', style: const TextStyle(color: Colors.white)),
-                          subtitle: Text(
-                            '${start?.toLocal().toString().split(" ")[0] ?? ''}  ${mood.isNotEmpty ? '• $mood' : ''}',
-                            style: const TextStyle(color: Colors.white70),
-                          ),
-                          trailing: mood == 'happy'
-                              ? const Text('😊', style: TextStyle(fontSize: 20))
-                              : mood == 'neutral'
-                                  ? const Text('��', style: TextStyle(fontSize: 20))
-                                  : mood == 'sad'
-                                      ? const Text('😫', style: TextStyle(fontSize: 20))
-                                      : null,
-                        ),
-                      );
-                    }),
                   ],
                 );
-              },
-            ),
-          ),
-        ],
+              }
+            },
+          );
+        },
       ),
     );
   }
@@ -401,4 +347,63 @@ class HistoryScreen extends ConsumerWidget {
       ],
     );
   }
-} 
+}
+
+// Helper for time range selector button
+class _RangeButton extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _RangeButton({required this.label, required this.selected, required this.onTap});
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(48, 32),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+          backgroundColor: selected ? const Color(0xFF1E88E5) : Colors.transparent,
+          foregroundColor: selected ? Colors.white : Colors.white70,
+          side: BorderSide(color: selected ? const Color(0xFF1E88E5) : Colors.white24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+        onPressed: onTap,
+        child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+      ),
+    );
+  }
+}
+
+// Helper for KPI card
+class _KpiCard extends StatelessWidget {
+  final String title;
+  final String value;
+  final String tooltip;
+  const _KpiCard({required this.title, required this.value, required this.tooltip});
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Tooltip(
+        message: tooltip,
+        child: Card(
+          color: const Color(0xFF121212),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Container(
+            width: 100,
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(value, style: const TextStyle(fontSize: 20, color: Colors.white, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                Text(title, style: const TextStyle(fontSize: 13, color: Colors.white70)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

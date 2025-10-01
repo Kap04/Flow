@@ -13,6 +13,8 @@ import 'in_session_screen.dart';
 import 'history_screen.dart';
 import 'sprint_goals_screen.dart';
 import 'sprint_timer_screen.dart';
+import 'leaderboard_screen.dart';
+import 'sounds_screen.dart';
 
 import 'package:async/async.dart';
 
@@ -106,6 +108,14 @@ class FlowApp extends StatelessWidget {
         GoRoute(
           path: '/settings',
           builder: (context, state) => const SettingsScreen(),
+        ),
+        GoRoute(
+          path: '/leaderboard',
+          builder: (context, state) => const LeaderboardScreen(),
+        ),
+        GoRoute(
+          path: '/sounds',
+          builder: (context, state) => const SoundsScreen(),
         ),
       ],
     );

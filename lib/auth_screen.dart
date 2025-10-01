@@ -73,12 +73,24 @@ class _AuthScreenState extends State<AuthScreen> {
     if (user == null) return;
     final doc = FirebaseFirestore.instance.collection('users').doc(user.uid);
     final snap = await doc.get();
+    // Prepare common metadata to merge on every sign-in
+    final base = {
+      'uid': user.uid,
+      'displayName': user.displayName ?? (user.email != null ? user.email!.split('@').first : ''),
+      'email': user.email ?? '',
+      'photoURL': user.photoURL ?? '',
+      'lastSeen': FieldValue.serverTimestamp(),
+    };
     if (!snap.exists) {
+      // New user: set createdAt and initialize focusScore
       await doc.set({
-        'displayName': user.displayName ?? '',
-        'email': user.email ?? '',
+        ...base,
         'createdAt': FieldValue.serverTimestamp(),
-      });
+        'focusScore': 0,
+      }, SetOptions(merge: true));
+    } else {
+      // Existing user: merge basic metadata and update lastSeen
+      await doc.set(base, SetOptions(merge: true));
     }
   }
 

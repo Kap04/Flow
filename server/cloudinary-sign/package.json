@@ -1,0 +1,15 @@
+{
+  "name": "cloudinary-sign-server",
+  "version": "1.0.0",
+  "description": "Simple Cloudinary signing endpoint for production uploads (keep API secret on server)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "body-parser": "^1.20.2",
+    "express": "^4.18.2",
+    "crypto": "^1.0.1",
+    "dotenv": "^16.3.1"
+  }
+}
