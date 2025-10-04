@@ -73,13 +73,33 @@ class GoalNotifier extends StateNotifier<GoalState> {
 
 final goalProvider = StateNotifierProvider<GoalNotifier, GoalState>((ref) => GoalNotifier());
 
-class SprintGoalsScreen extends ConsumerWidget {
+class SprintGoalsScreen extends ConsumerStatefulWidget {
   const SprintGoalsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SprintGoalsScreen> createState() => _SprintGoalsScreenState();
+}
+
+class _SprintGoalsScreenState extends ConsumerState<SprintGoalsScreen> {
+  late TextEditingController _goalController;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  @override
+  void initState() {
+    super.initState();
+    final goal = ref.read(goalProvider);
+    _goalController = TextEditingController(text: goal.goalName);
+  }
+
+  @override
+  void dispose() {
+    _goalController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final goal = ref.watch(goalProvider);
-    final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
     return Scaffold(
       key: _scaffoldKey,
       backgroundColor: Colors.black,
@@ -98,23 +118,18 @@ class SprintGoalsScreen extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                const Text('Goal:', style: TextStyle(color: Colors.white, fontSize: 18)),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextField(
-                    controller: TextEditingController(text: goal.goalName),
-                    style: const TextStyle(color: Colors.white, fontSize: 18),
-                    decoration: const InputDecoration(
-                      hintText: 'Goal Name',
-                      hintStyle: TextStyle(color: Colors.white54),
-                      border: InputBorder.none,
-                    ),
-                    onChanged: (v) => ref.read(goalProvider.notifier).setGoalName(v),
-                  ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8.0),
+              child: TextField(
+                controller: _goalController,
+                style: const TextStyle(color: Colors.white, fontSize: 18),
+                decoration: const InputDecoration(
+                  hintText: 'Goal',
+                  hintStyle: TextStyle(color: Colors.white54),
+                  border: InputBorder.none,
                 ),
-              ],
+                onSubmitted: (v) => ref.read(goalProvider.notifier).setGoalName(v),
+              ),
             ),
             const SizedBox(height: 24),
             Expanded(
@@ -211,7 +226,7 @@ class SprintGoalsScreen extends ConsumerWidget {
                 ),
               ],
             ),
-          ],
+            ],
         ),
       ),
     );
@@ -277,15 +292,16 @@ class _SprintTileState extends ConsumerState<_SprintTile> {
                   children: [
                     Expanded(
                       child: TextField(
-                        controller: _nameController,
-                        style: const TextStyle(color: Colors.white),
-                        decoration: const InputDecoration(
-                          hintText: 'Sprint Name',
-                          hintStyle: TextStyle(color: Colors.white54),
-                          border: OutlineInputBorder(),
+                          controller: _nameController,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: const InputDecoration(
+                            hintText: 'Sprint Name',
+                            hintStyle: TextStyle(color: Colors.white54),
+                            border: OutlineInputBorder(),
+                          ),
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: (v) => notifier.updateSprint(widget.sprint.id, name: v),
                         ),
-                        onChanged: (v) => notifier.updateSprint(widget.sprint.id, name: v),
-                      ),
                     ),
                     const SizedBox(width: 12),
                     SizedBox(
@@ -294,12 +310,13 @@ class _SprintTileState extends ConsumerState<_SprintTile> {
                         controller: _durationController,
                         style: const TextStyle(color: Colors.white),
                         keyboardType: TextInputType.number,
+                        textInputAction: TextInputAction.done,
                         decoration: const InputDecoration(
                           hintText: 'min',
                           hintStyle: TextStyle(color: Colors.white54),
                           border: OutlineInputBorder(),
                         ),
-                        onChanged: (v) {
+                        onSubmitted: (v) {
                           final val = int.tryParse(v);
                           if (val != null && val > 0) {
                             notifier.updateSprint(widget.sprint.id, duration: val);

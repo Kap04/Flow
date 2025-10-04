@@ -1,4 +1,4 @@
-name: flow_app
+name: Flow
 description: "A new Flutter project."
 publish_to: 'none'
 
@@ -58,4 +58,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/
-    - assets/soothing-deep-noise.mp3
+

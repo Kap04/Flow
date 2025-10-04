@@ -351,17 +351,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       }
 
       if (selectedId == null) {
-        // play bundled asset
-        await _audioPlayer.setReleaseMode(ReleaseMode.loop);
-        await _audioPlayer.play(AssetSource('soothing-deep-noise.mp3'));
+        // No bundled asset available any more. Prompt user to pick a sound in Sounds.
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No ambient sound selected. Open Sounds to add one.')));
         return;
       }
 
       final soundDoc = await FirebaseFirestore.instance.collection('sounds').doc(selectedId).get();
       if (!soundDoc.exists) {
-        // fallback to asset
-        await _audioPlayer.setReleaseMode(ReleaseMode.loop);
-        await _audioPlayer.play(AssetSource('soothing-deep-noise.mp3'));
+        // If the referenced sound doc no longer exists, prompt the user to reselect a sound.
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Selected ambient sound not found — open Sounds to choose another.')));
         return;
       }
       final data = soundDoc.data()!;
@@ -380,8 +378,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         url = await _getDownloadUrlFromStorage(storagePath);
       }
       if (url == null) {
-        await _audioPlayer.setReleaseMode(ReleaseMode.loop);
-        await _audioPlayer.play(AssetSource('soothing-deep-noise.mp3'));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No download URL for selected ambient sound')));
         return;
       }
 
@@ -390,10 +387,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     } catch (e) {
       // ignore: avoid_print
       print('home_screen: ambient playback failed: $e');
-      try {
-        await _audioPlayer.setReleaseMode(ReleaseMode.loop);
-        await _audioPlayer.play(AssetSource('soothing-deep-noise.mp3'));
-      } catch (_) {}
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ambient playback failed')));
     }
   }
 
@@ -500,38 +494,40 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Segmented selector
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.grey[900],
-                      borderRadius: BorderRadius.circular(18),
+              // Segmented selector (choose countdown or count-up) — only show before session starts
+              if (!_isCountingDown) ...[
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.grey[900],
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+                      child: Row(
+                        children: [
+                          _SegmentedIconButton(
+                            icon: Icons.hourglass_bottom,
+                            selected: _focusMode == 0,
+                            onTap: () => setState(() => _focusMode = 0),
+                            size: 32,
+                          ),
+                          Container(width: 1, height: 24, color: Colors.grey[800]),
+                          _SegmentedIconButton(
+                            icon: Icons.all_inclusive,
+                            selected: _focusMode == 1,
+                            onTap: () => setState(() => _focusMode = 1),
+                            size: 32,
+                          ),
+                        ],
+                      ),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
-                    child: Row(
-                      children: [
-                        _SegmentedIconButton(
-                          icon: Icons.hourglass_bottom,
-                          selected: _focusMode == 0,
-                          onTap: () => setState(() => _focusMode = 0),
-                          size: 32,
-                        ),
-                        Container(width: 1, height: 24, color: Colors.grey[800]),
-                        _SegmentedIconButton(
-                          icon: Icons.all_inclusive,
-                          selected: _focusMode == 1,
-                          onTap: () => setState(() => _focusMode = 1),
-                          size: 32,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
 
               Expanded(
                 child: Center(
@@ -937,7 +933,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     enabled: !_isCountingDown,
                     onChanged: (v) => setState(() => _sessionName = v),
                     decoration: InputDecoration(
-                      hintText: 'debugging',
+                      hintText: 'session name',
                       hintStyle: const TextStyle(color: Colors.white54),
                       filled: true,
                       fillColor: Colors.grey[900],

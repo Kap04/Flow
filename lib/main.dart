@@ -57,6 +57,15 @@ class FlowApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final _router = GoRouter(
       initialLocation: '/welcome',
+      refreshListenable: GoRouterRefreshStream(FirebaseAuth.instance.authStateChanges()),
+      redirect: (context, state) {
+        final loggedIn = FirebaseAuth.instance.currentUser != null;
+        final path = state.uri.path;
+        final goingToAuth = path == '/auth' || path == '/welcome';
+        if (!loggedIn && !goingToAuth) return '/auth';
+        if (loggedIn && (path == '/auth' || path == '/welcome' || path == '/')) return '/home';
+        return null;
+      },
       routes: [
         GoRoute(
           path: '/welcome',
@@ -146,6 +155,52 @@ class FlowApp extends StatelessWidget {
         ),
       ),
       routerConfig: _router,
+      builder: (context, child) {
+        // Intercept system back button: pop if possible, otherwise navigate to /home instead of exiting
+        return WillPopScope(
+          onWillPop: () async {
+            try {
+              // Try to pop any existing route (works better with nested navigators used by GoRouter)
+              final popped = await Navigator.maybePop(context);
+              if (popped) {
+                return false;
+              }
+
+              // Try to read current location from GoRouter dynamically (avoids compile-time issues with different go_router versions)
+              try {
+                final router = GoRouter.of(context);
+                final loc = (router as dynamic).location as String?;
+                if (loc != null) {
+                  if (loc == '/home') {
+                    // allow default behavior (exit)
+                    return true;
+                  }
+                  // navigate to home instead of exiting
+                  router.go('/home');
+                  return false;
+                }
+              } catch (_) {
+                // dynamic access failed or property missing, fall back
+              }
+
+              // Fallback: if child looks like HomeScreen, allow exit; otherwise navigate home
+              if (child != null) {
+                final typeName = child.runtimeType.toString();
+                if (typeName.toLowerCase().contains('home')) {
+                  return true;
+                }
+              }
+
+              GoRouter.of(context).go('/home');
+              return false;
+            } catch (e) {
+              // ignore and allow default
+            }
+            return true;
+          },
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       debugShowCheckedModeBanner: false,
     );
   }

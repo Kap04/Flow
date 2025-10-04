@@ -25,11 +25,27 @@ class _SoundsScreenState extends ConsumerState<SoundsScreen> {
   bool _isPlaying = false;
   Map<String, double> _downloadProgress = {};
   Set<String> _downloaded = {};
+  String? _selectedSoundId;
 
   @override
   void initState() {
     super.initState();
     _scanDownloadedFiles();
+    _loadSelectedSound();
+  }
+
+  Future<void> _loadSelectedSound() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    try {
+      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      setState(() {
+        _selectedSoundId = doc.data()?['selectedSoundId'] as String?;
+      });
+    } catch (e) {
+      // ignore: avoid_print
+      print('sounds: failed to load selectedSoundId: $e');
+    }
   }
 
   // Cloudinary config (you can change these or input at runtime). Use unsigned preset for quick uploads.
@@ -177,6 +193,9 @@ class _SoundsScreenState extends ConsumerState<SoundsScreen> {
     if (user == null) return;
     await FirebaseFirestore.instance.collection('users').doc(user.uid).set({'selectedSoundId': soundId}, SetOptions(merge: true));
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Set as preferred session sound')));
+    setState(() {
+      _selectedSoundId = soundId;
+    });
   }
 
   Widget _buildItem(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -191,9 +210,14 @@ class _SoundsScreenState extends ConsumerState<SoundsScreen> {
 
     return Card(
       color: Colors.grey[900],
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: id == _selectedSoundId ? const BorderSide(color: Colors.lightBlueAccent, width: 2) : BorderSide.none,
+      ),
       child: ListTile(
         title: Text(title, style: const TextStyle(color: Colors.white)),
         subtitle: desc.isNotEmpty ? Text(desc, style: const TextStyle(color: Colors.white70)) : null,
+  onTap: () => _setPreferred(id),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -208,8 +232,6 @@ class _SoundsScreenState extends ConsumerState<SoundsScreen> {
               SizedBox(width: 36, height: 36, child: CircularProgressIndicator(value: _downloadProgress[id]))
             else
               IconButton(icon: const Icon(Icons.download, color: Colors.white), onPressed: () => _downloadSound(id, downloadUrl, storagePath)),
-
-            IconButton(icon: const Icon(Icons.check, color: Colors.blueAccent), onPressed: () => _setPreferred(id)),
           ],
         ),
       ),

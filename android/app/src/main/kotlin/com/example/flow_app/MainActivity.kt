@@ -42,7 +42,8 @@ class MainActivity : FlutterActivity() {
 							if (!nm.isNotificationPolicyAccessGranted) {
 								result.error("NO_ACCESS", "Do Not Disturb access not granted", null)
 							} else {
-								nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_NONE)
+								// Use PRIORITY filter so DND is enabled but the device isn't forced fully silent
+								nm.setInterruptionFilter(NotificationManager.INTERRUPTION_FILTER_PRIORITY)
 								result.success(true)
 							}
 						} else {

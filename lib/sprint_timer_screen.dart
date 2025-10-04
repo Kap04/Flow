@@ -8,6 +8,8 @@ import 'package:circular_countdown_timer/circular_countdown_timer.dart';
 import 'dart:async';
 import 'gradients.dart';
 import 'timer_widget.dart';
+import 'dnd_helper.dart';
+import 'package:flutter/services.dart';
 import 'sprint_sequence_provider.dart';
 
 class SprintTimerScreen extends ConsumerStatefulWidget {
@@ -15,7 +17,7 @@ class SprintTimerScreen extends ConsumerStatefulWidget {
   final String sprintName;
   final int durationMinutes;
   final int sprintIndex;
-  
+
   SprintTimerScreen({
     super.key,
     required this.goalName,
@@ -34,6 +36,7 @@ class _SprintTimerScreenState extends ConsumerState<SprintTimerScreen> {
   bool _isPaused = false;
   bool _ambientSound = false;
   bool _showAbortButton = true;
+  bool _dndEnabled = false;
   late AudioPlayer _audioPlayer;
   final GlobalKey<TimerWidgetState> _timerKey = GlobalKey<TimerWidgetState>();
 
@@ -41,7 +44,52 @@ class _SprintTimerScreenState extends ConsumerState<SprintTimerScreen> {
   void initState() {
     super.initState();
     _audioPlayer = AudioPlayer();
+    _initDndState();
     print('🎯 initState: durationMinutes=${widget.durationMinutes}');
+  }
+
+  Future<void> _initDndState() async {
+    try {
+      final granted = await DndHelper.isAccessGranted();
+      if (mounted) setState(() => _dndEnabled = granted);
+    } catch (e) {
+      // ignore: avoid_print
+      print('sprint_timer: failed to query DND access: $e');
+    }
+  }
+
+  Future<void> _toggleDnd(bool value) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final granted = await DndHelper.isAccessGranted();
+      if (!granted) {
+        messenger.showSnackBar(SnackBar(
+          content: const Text('Please grant Do Not Disturb access in system settings'),
+          action: SnackBarAction(label: 'App info', onPressed: () async {
+            await DndHelper.openAppSettings();
+          }),
+        ));
+        await DndHelper.openSettings();
+        return;
+      }
+      if (value) {
+        await DndHelper.enableDnd();
+        if (mounted) setState(() => _dndEnabled = true);
+        messenger.showSnackBar(const SnackBar(content: Text('Do Not Disturb enabled')));
+      } else {
+        await DndHelper.disableDnd();
+        if (mounted) setState(() => _dndEnabled = false);
+        messenger.showSnackBar(const SnackBar(content: Text('Do Not Disturb disabled')));
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('sprint_timer: DND toggle error: $e');
+      if (e is MissingPluginException) {
+        messenger.showSnackBar(const SnackBar(content: Text('DND native handler unavailable — stop and rebuild the app (flutter run) to enable DND functionality')));
+      } else {
+        messenger.showSnackBar(const SnackBar(content: Text('Failed to toggle Do Not Disturb')));
+      }
+    }
   }
 
   @override
@@ -68,8 +116,11 @@ class _SprintTimerScreenState extends ConsumerState<SprintTimerScreen> {
   void _toggleAmbient() async {
     setState(() => _ambientSound = !_ambientSound);
     if (_ambientSound) {
-      await _audioPlayer.play(AssetSource('soothing-deep-noise.mp3'));
-      await _audioPlayer.setReleaseMode(ReleaseMode.loop);
+      // Ambient sounds are now user-selected via the Sounds screen and stored in Firestore.
+      // For sprint timer we notify the user to choose a sound; playback will be handled by HomeScreen's ambient logic.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ambient playback: open Sounds to choose an ambient sound.')));
+      }
     } else {
       await _audioPlayer.stop();
     }
@@ -213,21 +264,45 @@ class _SprintTimerScreenState extends ConsumerState<SprintTimerScreen> {
                 ),
               ),
               
-              // Ambient Sound Toggle for Sprint Goals (below timer)
+              // Ambient Sound + DND controls (responsive wrap to avoid overflow)
               const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Text('Ambient Sound', style: TextStyle(color: Colors.white, fontSize: 16)),
-                  const SizedBox(width: 12),
-                  Switch(
-                    value: _ambientSound,
-                    onChanged: (v) => _toggleAmbient(),
-                    activeColor: Colors.grey,
-                    trackOutlineColor: MaterialStateProperty.all(Colors.transparent),
-                    trackColor: MaterialStateProperty.all(Colors.white24),
-                  ),
-                ],
+              Center(
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 16,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('Ambient Sound', style: TextStyle(color: Colors.white, fontSize: 16)),
+                        const SizedBox(width: 8),
+                        Switch(
+                          value: _ambientSound,
+                          onChanged: (v) => _toggleAmbient(),
+                          activeColor: Colors.grey,
+                          trackOutlineColor: MaterialStateProperty.all(Colors.transparent),
+                          trackColor: MaterialStateProperty.all(Colors.white24),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text('Do Not Disturb', style: TextStyle(color: Colors.white, fontSize: 16)),
+                        const SizedBox(width: 8),
+                        Switch(
+                          value: _dndEnabled,
+                          onChanged: (v) => _toggleDnd(v),
+                          activeColor: Colors.grey,
+                          trackOutlineColor: MaterialStateProperty.all(Colors.transparent),
+                          trackColor: MaterialStateProperty.all(Colors.white24),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
               
               // Control buttons at the bottom for sprint goals

@@ -26,8 +26,8 @@ class AppDrawer extends StatelessWidget {
             },
           ),
           ListTile(
-            leading: const Icon(Icons.flag, color: Colors.amber),
-            title: const Text('Sprint Goals', style: TextStyle(color: Colors.white)),
+            leading: const Icon(Icons.directions_run, color: Colors.amber),
+            title: const Text('Sprints', style: TextStyle(color: Colors.white)),
             onTap: () {
               Navigator.pop(context);
               GoRouter.of(context).go('/sprints');
