@@ -15,6 +15,7 @@ import 'sprint_goals_screen.dart';
 import 'sprint_timer_screen.dart';
 import 'leaderboard_screen.dart';
 import 'sounds_screen.dart';
+import 'profile_screen.dart';
 
 import 'package:async/async.dart';
 
@@ -92,6 +93,10 @@ class FlowApp extends StatelessWidget {
         GoRoute(
           path: '/history',
           builder: (context, state) => const HistoryScreen(),
+        ),
+        GoRoute(
+          path: '/profile',
+          builder: (context, state) => const ProfileScreen(),
         ),
         GoRoute(
           path: '/sprints',

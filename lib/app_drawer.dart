@@ -34,11 +34,11 @@ class AppDrawer extends StatelessWidget {
             },
           ),
           ListTile(
-            leading: const Icon(Icons.bar_chart, color: Colors.grey),
-            title: const Text('Analytics', style: TextStyle(color: Colors.white)),
+            leading: const Icon(Icons.person, color: Colors.grey),
+            title: const Text('Profile', style: TextStyle(color: Colors.white)),
             onTap: () {
               Navigator.pop(context);
-              GoRouter.of(context).go('/history');
+              GoRouter.of(context).go('/profile');
             },
           ),
           ListTile(

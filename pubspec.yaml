@@ -1,4 +1,4 @@
-name: Flow
+name: flow_app
 description: "A new Flutter project."
 publish_to: 'none'
 
@@ -32,6 +32,8 @@ dependencies:
   http: ^1.1.0
   file_selector: ^1.0.4
   mime: ^1.0.2
+  image_picker: ^0.8.7
+  cached_network_image: ^3.2.3
 
 dev_dependencies:
   flutter_test:
