@@ -17,6 +17,8 @@ import 'timer_widget.dart';
 import 'app_drawer.dart';
 import 'dnd_helper.dart';
 import 'package:flutter/services.dart';
+import 'timer_notification_manager.dart';
+import 'notification_service.dart';
 
 
 const List<String> kPredefinedTags = [
@@ -63,6 +65,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _programmaticDialSet = false;
   bool _stretchAppliedOnce = false;
   final GlobalKey<TimerWidgetState> _timerKey = GlobalKey<TimerWidgetState>();
+  TimerNotificationManager? _notifManager;
 
   @override
   void initState() {
@@ -70,6 +73,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _countDownController = CountDownController();
     _hoursController = FixedExtentScrollController(initialItem: _hours);
     _minutesController = FixedExtentScrollController(initialItem: _minutes);
+    _notifManager = TimerNotificationManager();
     _loadPrefs();
   }
 
@@ -142,6 +146,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           }
         });
       }
+      // Start notification for individual timer
+      final totalSeconds = (_focusMode == 0) ? (_hours * 60 + _minutes) * 60 : 0;
+      _notifManager?.start(totalSeconds, title: 'Timer', body: _sessionName.isNotEmpty ? _sessionName : (_customTag ?? _selectedTag));
       _abortTimer?.cancel();
       _abortTimer = Timer(const Duration(seconds: 60), () {
         setState(() {
@@ -161,6 +168,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // stop ambient playback when session ends
     _stopAmbientPlayback();
     _abortTimer?.cancel();
+    _notifManager?.stop();
   }
 
   void _stopSession() {
@@ -185,6 +193,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     });
     _stopAmbientPlayback();
     _abortTimer?.cancel();
+    _notifManager?.stop();
   }
 
   void _abortSession() async {
@@ -217,6 +226,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       });
       _stopAmbientPlayback();
       _abortTimer?.cancel();
+      _notifManager?.stop();
     }
   }
 

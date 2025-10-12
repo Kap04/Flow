@@ -16,6 +16,7 @@ import 'sprint_timer_screen.dart';
 import 'leaderboard_screen.dart';
 import 'sounds_screen.dart';
 import 'profile_screen.dart';
+import 'notification_service.dart';
 
 import 'package:async/async.dart';
 
@@ -38,6 +39,7 @@ class GoRouterRefreshStream extends ChangeNotifier {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await NotificationService.init();
   await Firebase.initializeApp();
   runApp(const ProviderScope(child: FlowApp()));
 }

@@ -100,7 +100,7 @@ class _SprintGoalsScreenState extends ConsumerState<SprintGoalsScreen> {
   @override
   Widget build(BuildContext context) {
     final goal = ref.watch(goalProvider);
-    return Scaffold(
+  return Scaffold(
       key: _scaffoldKey,
       backgroundColor: Colors.black,
       drawer: const AppDrawer(),
@@ -122,7 +122,11 @@ class _SprintGoalsScreenState extends ConsumerState<SprintGoalsScreen> {
               padding: const EdgeInsets.symmetric(vertical: 8.0),
               child: TextField(
                 controller: _goalController,
-                style: const TextStyle(color: Colors.white, fontSize: 18),
+                style: TextStyle(
+                  color: _goalController.text.trim() == 'Read 50 pages' || _goalController.text.trim().isEmpty ? Colors.white54 : Colors.white,
+                  fontSize: 18,
+                  fontStyle: _goalController.text.trim() == 'Read 50 pages' || _goalController.text.trim().isEmpty ? FontStyle.italic : FontStyle.normal,
+                ),
                 decoration: const InputDecoration(
                   hintText: 'Goal',
                   hintStyle: TextStyle(color: Colors.white54),
@@ -142,53 +146,7 @@ class _SprintGoalsScreenState extends ConsumerState<SprintGoalsScreen> {
                     return _SprintTile(sprint: sprint);
                   } else {
                     final prevSprint = goal.sprints[(i - 1) ~/ 2];
-                    return GestureDetector(
-                      onLongPress: () async {
-                        final newBreak = await showDialog<int>(
-                          context: context,
-                          builder: (ctx) {
-                            int val = prevSprint.breakDuration;
-                            return AlertDialog(
-                              backgroundColor: Colors.black,
-                              title: const Text('Set Break Duration', style: TextStyle(color: Colors.white)),
-                              content: Row(
-                                children: [
-                                  Expanded(
-                                    child: Slider(
-                                      value: val.toDouble(),
-                                      min: 1,
-                                      max: 30,
-                                      divisions: 29,
-                                      label: '$val min',
-                                      onChanged: (v) => val = v.round(),
-                                    ),
-                                  ),
-                                  Text('$val min', style: const TextStyle(color: Colors.white)),
-                                ],
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(ctx, val),
-                                  child: const Text('OK', style: TextStyle(color: Colors.white)),
-                                ),
-                              ],
-                            );
-                          },
-                        );
-                        if (newBreak != null) {
-                          ref.read(goalProvider.notifier).updateBreak(prevSprint.id, newBreak);
-                        }
-                      },
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Center(
-                          child: Text(
-                            '-------${prevSprint.breakDuration} min break---------',
-                            style: const TextStyle(color: Colors.white38, fontSize: 13, fontStyle: FontStyle.italic),
-                          ),
-                        ),
-                      ),
-                    );
+                    return _BreakDivider(sprint: prevSprint);
                   }
                 },
               ),
@@ -203,7 +161,9 @@ class _SprintGoalsScreenState extends ConsumerState<SprintGoalsScreen> {
                   style: TextButton.styleFrom(foregroundColor: Colors.white),
                 ),
                 const Spacer(),
-                ElevatedButton(
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.play_arrow, color: Colors.black),
+                  label: const Text('Start Sprint'),
                   onPressed: () {
                     final goal = ref.read(goalProvider);
                     if (goal.sprints.isNotEmpty) {
@@ -218,11 +178,12 @@ class _SprintGoalsScreenState extends ConsumerState<SprintGoalsScreen> {
                     }
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white10,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    elevation: 2,
                   ),
-                  child: const Text('Start Sprint'),
                 ),
               ],
             ),
@@ -241,95 +202,241 @@ class _SprintTile extends ConsumerStatefulWidget {
 }
 
 class _SprintTileState extends ConsumerState<_SprintTile> {
-  bool _editing = false;
-  late TextEditingController _nameController;
-  late TextEditingController _durationController;
+  bool editingName = false;
+  bool editingDuration = false;
+  late TextEditingController nameController;
+  late TextEditingController durationController;
+  late FocusNode nameFocus;
+  late FocusNode durationFocus;
+
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.sprint.name);
-    _durationController = TextEditingController(text: widget.sprint.duration.toString());
+    nameController = TextEditingController(text: widget.sprint.name);
+    durationController = TextEditingController(text: widget.sprint.duration.toString());
+    nameFocus = FocusNode();
+    durationFocus = FocusNode();
+
+    nameFocus.addListener(() {
+      if (!nameFocus.hasFocus && editingName) {
+        _saveName();
+      }
+    });
+
+    durationFocus.addListener(() {
+      if (!durationFocus.hasFocus && editingDuration) {
+        _saveDuration();
+      }
+    });
   }
+
   @override
   void dispose() {
-    _nameController.dispose();
-    _durationController.dispose();
+    nameController.dispose();
+    durationController.dispose();
+    nameFocus.dispose();
+    durationFocus.dispose();
     super.dispose();
   }
+
+  void _saveName() {
+    final notifier = ref.read(goalProvider.notifier);
+    final newName = nameController.text.trim();
+    if (newName.isNotEmpty && newName != widget.sprint.name) {
+      notifier.updateSprint(widget.sprint.id, name: newName);
+    }
+    setState(() {
+      editingName = false;
+    });
+  }
+
+  void _saveDuration() {
+    final notifier = ref.read(goalProvider.notifier);
+    final newDur = int.tryParse(durationController.text.trim());
+    if (newDur != null && newDur > 0 && newDur != widget.sprint.duration) {
+      notifier.updateSprint(widget.sprint.id, duration: newDur);
+    }
+    setState(() {
+      editingDuration = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final notifier = ref.read(goalProvider.notifier);
+
     return Card(
       color: Colors.grey[900],
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${widget.sprint.name} - ${widget.sprint.duration} min',
-                    style: const TextStyle(color: Colors.white, fontSize: 16),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.edit, color: Colors.white38, size: 20),
-                  onPressed: () => setState(() => _editing = !_editing),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.redAccent, size: 20),
-                  onPressed: () => notifier.removeSprint(widget.sprint.id),
-                ),
-              ],
-            ),
-            if (_editing)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                          controller: _nameController,
-                          style: const TextStyle(color: Colors.white),
-                          decoration: const InputDecoration(
-                            hintText: 'Sprint Name',
-                            hintStyle: TextStyle(color: Colors.white54),
-                            border: OutlineInputBorder(),
-                          ),
-                          textInputAction: TextInputAction.done,
-                          onSubmitted: (v) => notifier.updateSprint(widget.sprint.id, name: v),
-                        ),
+            Expanded(
+              child: Row(
+                children: [
+                  // Name area (tap to edit inline)
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          editingName = true;
+                          // update controller text in case provider changed
+                          nameController.text = widget.sprint.name;
+                          WidgetsBinding.instance.addPostFrameCallback((_) => nameFocus.requestFocus());
+                        });
+                      },
+                      child: editingName
+                          ? TextField(
+                              controller: nameController,
+                              focusNode: nameFocus,
+                              style: const TextStyle(color: Colors.white, fontSize: 16),
+                              decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 4), border: InputBorder.none),
+                              textInputAction: TextInputAction.done,
+                              onSubmitted: (_) => _saveName(),
+                            )
+                          : Text(
+                              '${widget.sprint.name}',
+                              style: const TextStyle(color: Colors.white, fontSize: 16),
+                            ),
                     ),
-                    const SizedBox(width: 12),
-                    SizedBox(
-                      width: 70,
-                      child: TextField(
-                        controller: _durationController,
-                        style: const TextStyle(color: Colors.white),
-                        keyboardType: TextInputType.number,
-                        textInputAction: TextInputAction.done,
-                        decoration: const InputDecoration(
-                          hintText: 'min',
-                          hintStyle: TextStyle(color: Colors.white54),
-                          border: OutlineInputBorder(),
+                  ),
+                    const SizedBox(width: 8),
+                    // Duration area (tap to edit inline) — centered block
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          editingDuration = true;
+                          durationController.text = widget.sprint.duration.toString();
+                          WidgetsBinding.instance.addPostFrameCallback((_) => durationFocus.requestFocus());
+                        });
+                      },
+                      child: SizedBox(
+                        width: 110,
+                        child: Center(
+                          child: editingDuration
+                              ? SizedBox(
+                                  width: 70,
+                                  child: TextField(
+                                    controller: durationController,
+                                    focusNode: durationFocus,
+                                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 4), border: InputBorder.none),
+                                    textInputAction: TextInputAction.done,
+                                    onSubmitted: (_) => _saveDuration(),
+                                  ),
+                                )
+                              : Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.hourglass_bottom, color: Colors.white54, size: 16),
+                                    const SizedBox(width: 6),
+                                    Text('${widget.sprint.duration} min', style: const TextStyle(color: Colors.white54, fontSize: 14)),
+                                  ],
+                                ),
                         ),
-                        onSubmitted: (v) {
-                          final val = int.tryParse(v);
-                          if (val != null && val > 0) {
-                            notifier.updateSprint(widget.sprint.id, duration: val);
-                          }
-                        },
                       ),
                     ),
-                  ],
-                ),
+                ],
               ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete, color: Colors.redAccent, size: 20),
+              onPressed: () => notifier.removeSprint(widget.sprint.id),
+            ),
           ],
         ),
       ),
     );
   }
-} 
+}
+
+class _BreakDivider extends ConsumerStatefulWidget {
+  final Sprint sprint;
+  const _BreakDivider({required this.sprint});
+  @override
+  ConsumerState<_BreakDivider> createState() => _BreakDividerState();
+}
+
+class _BreakDividerState extends ConsumerState<_BreakDivider> {
+  bool editing = false;
+  late TextEditingController _controller;
+  late FocusNode _focus;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.sprint.breakDuration.toString());
+    _focus = FocusNode();
+    _focus.addListener(() {
+      if (!_focus.hasFocus && editing) {
+        _save();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final val = int.tryParse(_controller.text.trim());
+    if (val != null && val > 0) {
+      ref.read(goalProvider.notifier).updateBreak(widget.sprint.id, val);
+    } else {
+      // reset controller to current value
+      _controller.text = widget.sprint.breakDuration.toString();
+    }
+    setState(() => editing = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Center(
+        child: Row(
+          children: [
+            Expanded(child: Container(height: 1, margin: const EdgeInsets.only(right: 8), color: Colors.white12)),
+            const SizedBox(width: 6),
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  editing = true;
+                  _controller.text = widget.sprint.breakDuration.toString();
+                  WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
+                });
+              },
+              child: editing
+                  ? SizedBox(
+                      width: 120,
+                      child: TextField(
+                        controller: _controller,
+                        focusNode: _focus,
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                        keyboardType: TextInputType.number,
+                        textAlign: TextAlign.center,
+                        decoration: const InputDecoration(isDense: true, contentPadding: EdgeInsets.symmetric(vertical: 8, horizontal: 8), border: InputBorder.none),
+                        onSubmitted: (_) => _save(),
+                      ),
+                    )
+                  : Row(
+                      children: [
+                        const Icon(Icons.bedtime, color: Colors.white38, size: 16),
+                        const SizedBox(width: 6),
+                        Text('${widget.sprint.breakDuration} min break', style: const TextStyle(color: Colors.white38, fontSize: 13)),
+                      ],
+                    ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(child: Container(height: 1, margin: const EdgeInsets.only(left: 8), color: Colors.white12)),
+          ],
+        ),
+      ),
+    );
+  }
+}

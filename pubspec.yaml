@@ -34,6 +34,14 @@ dependencies:
   mime: ^1.0.2
   image_picker: ^0.8.7
   cached_network_image: ^3.2.3
+  flutter_local_notifications: ^19.4.2
+  permission_handler: ^11.3.0
+  # Removed flutter_foreground_task due to Gradle/namespace compatibility issues in some setups.
+  # If you need a foreground service, consider adding a compatible package or pinning a
+  # specific version that matches your Android Gradle Plugin.
+
+  # Ensure the linux implementation is available to avoid build-time warnings on desktop:
+  flutter_local_notifications_linux: any
 
 dev_dependencies:
   flutter_test:

@@ -134,7 +134,7 @@ List<SprintSession> createSprintSequence(String goalName, List<Sprint> sprints) 
       sessions.add(SprintSession(
         goalName: goalName,
         sprintName: 'Break',
-        sprintIndex: i + 1, // Use different index for break
+        sprintIndex: i, // break belongs to the same sprint index
         durationMinutes: sprint.breakDuration,
         phase: SprintPhase.rest,
         breakDuration: sprint.breakDuration,

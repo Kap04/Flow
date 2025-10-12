@@ -72,6 +72,23 @@ class TimerWidgetState extends State<TimerWidget> {
 
   // Expose the controller for external control
   CountDownController get controller => _countDownController;
+
+  // Public helper to start a new session with a different session name/tag/duration
+  void startNewSession({required String sessionName, required String tag, required int durationMinutes, required TimerMode mode}) {
+    final newKey = '$sessionName-$tag-$durationMinutes';
+    _lastSessionKey = newKey;
+    _lastDuration = durationMinutes;
+    _initialized = true;
+    // restart the countdown controller
+    if (mode == TimerMode.countdown) {
+      _countUpTimer?.cancel();
+      _countDownController.restart(duration: durationMinutes * 60);
+      _countDownController.start();
+    } else {
+      _countUpSeconds = 0;
+      _startCountUp();
+    }
+  }
   
   // Method to handle external pause/resume calls
   void togglePause() {
