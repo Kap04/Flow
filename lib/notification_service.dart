@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:flutter/foundation.dart';
+// removed unused foundation import
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -73,6 +73,40 @@ class NotificationService {
     );
   }
 
+  // Show/update a count-up (elapsed) notification. This displays elapsed time instead
+  // of remaining time and is intended for the 'infinite' count-up timer.
+  static Future<void> showCountupNotification({
+    required String title,
+    required String body,
+    required int elapsedSeconds,
+    bool ongoing = true,
+  }) async {
+    final androidDetails = AndroidNotificationDetails(
+      androidChannelId,
+      androidChannelName,
+      channelDescription: 'Updates for running timers',
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
+      onlyAlertOnce: true,
+      ongoing: ongoing,
+      styleInformation: const DefaultStyleInformation(true, true),
+    );
+
+    final iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentSound: false,
+      presentBadge: false,
+    );
+
+    final notificationBody = '$body — ${_formatElapsed(elapsedSeconds)} elapsed';
+    await _plugin.show(
+      timerNotificationId,
+      title,
+      notificationBody,
+      NotificationDetails(android: androidDetails, iOS: iosDetails),
+    );
+  }
+
   static Future<void> cancelTimerNotification() async {
     await _plugin.cancel(timerNotificationId);
   }
@@ -81,6 +115,17 @@ class NotificationService {
     final d = Duration(seconds: seconds);
     final mm = d.inMinutes.remainder(60).toString().padLeft(2, '0');
     final ss = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$mm:$ss';
+  }
+
+  static String _formatElapsed(int seconds) {
+    final d = Duration(seconds: seconds);
+    final hh = d.inHours.toString();
+    final mm = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final ss = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    if (d.inHours > 0) {
+      return '$hh:$mm:$ss';
+    }
     return '$mm:$ss';
   }
 }

@@ -3,8 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'session_provider.dart';
-import 'in_session_screen.dart';
-import 'history_screen.dart';
+// removed unused imports
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:circular_countdown_timer/circular_countdown_timer.dart';
@@ -18,8 +17,7 @@ import 'app_drawer.dart';
 import 'dnd_helper.dart';
 import 'package:flutter/services.dart';
 import 'timer_notification_manager.dart';
-import 'notification_service.dart';
-
+// removed unused import: notification_service.dart
 
 const List<String> kPredefinedTags = [
   'Study',
@@ -29,6 +27,10 @@ const List<String> kPredefinedTags = [
   'Meditation',
   'Other',
 ];
+
+// When true, pressing Back on the Home screen with no back history will
+// show a confirmation dialog before exiting the app. Set to false to exit immediately.
+const bool kConfirmExitOnHome = true;
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -64,6 +66,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   late FixedExtentScrollController _minutesController;
   bool _programmaticDialSet = false;
   bool _stretchAppliedOnce = false;
+  bool _userManuallyChangedDials = false;
+  int? _preCountUpHours;
+  int? _preCountUpMinutes;
   final GlobalKey<TimerWidgetState> _timerKey = GlobalKey<TimerWidgetState>();
   TimerNotificationManager? _notifManager;
 
@@ -104,13 +109,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
-  void _setDialsFromStretch(int stretch) {
+  void _setDialsFromStretch(int stretch, {bool force = false}) {
     // If stretch changed, allow re-application
     if (_lastStretch != stretch) {
       _stretchAppliedOnce = false;
     }
-    if (!_isCountingDown && stretch > 0 && !_stretchAppliedOnce) {
+    if (!_isCountingDown && stretch > 0 && (!_stretchAppliedOnce || force)) {
       _programmaticDialSet = true;
+      // If we're applying programmatically, clear the user's manual-change flag
+      if (!force) {
+        // normal programmatic apply (reactive) should clear manual flag
+        _userManuallyChangedDials = false;
+      } else {
+        // forced reapply should only occur when callers checked the manual flag
+        // externally; do not clear it here to avoid overriding an explicit user change.
+      }
       setState(() {
         _hours = stretch ~/ 60;
         _minutes = stretch % 60;
@@ -147,8 +160,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         });
       }
       // Start notification for individual timer
-      final totalSeconds = (_focusMode == 0) ? (_hours * 60 + _minutes) * 60 : 0;
-      _notifManager?.start(totalSeconds, title: 'Timer', body: _sessionName.isNotEmpty ? _sessionName : (_customTag ?? _selectedTag));
+      final totalSeconds = (_focusMode == 0)
+          ? (_hours * 60 + _minutes) * 60
+          : 0;
+      _notifManager?.start(
+        totalSeconds,
+        title: 'Timer',
+        body: _sessionName.isNotEmpty
+            ? _sessionName
+            : (_customTag ?? _selectedTag),
+      );
       _abortTimer?.cancel();
       _abortTimer = Timer(const Duration(seconds: 60), () {
         setState(() {
@@ -159,7 +180,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   void _onCountdownComplete() {
-    _saveSession(durationMinutes: _hours * 60 + _minutes, plannedMinutes: _hours * 60 + _minutes);
+    _saveSession(
+      durationMinutes: _hours * 60 + _minutes,
+      plannedMinutes: _hours * 60 + _minutes,
+    );
     setState(() {
       _isCountingDown = false;
       _isPaused = false;
@@ -201,8 +225,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: Colors.black,
-        title: const Text('Abort Session?', style: TextStyle(color: Colors.white)),
-        content: const Text('Are you sure you want to abort this session? It will not be saved.', style: TextStyle(color: Colors.white70)),
+        title: const Text(
+          'Abort Session?',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'Are you sure you want to abort this session? It will not be saved.',
+          style: TextStyle(color: Colors.white70),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
@@ -210,7 +240,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Abort', style: TextStyle(color: Colors.redAccent)),
+            child: const Text(
+              'Abort',
+              style: TextStyle(color: Colors.redAccent),
+            ),
           ),
         ],
       ),
@@ -230,24 +263,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
-  Future<void> _saveSession({required int durationMinutes, required int plannedMinutes}) async {
+  Future<void> _saveSession({
+    required int durationMinutes,
+    required int plannedMinutes,
+  }) async {
     if (_aborted) return;
     final user = FirebaseAuth.instance.currentUser;
     if (user == null || _sessionStart == null) return;
     final endTime = DateTime.now();
-  String tagToSave = _customTag ?? _selectedTag;
-    await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('sessions').add({
-      'sessionName': _sessionName,
-      'startTime': _sessionStart,
-      'endTime': endTime,
-      'duration': durationMinutes,
-      'planned': plannedMinutes,
-      'tag': tagToSave,
-      'ambient': _ambientSound,
-      'distracted': _distracted,
-      'aborted': false,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+    String tagToSave = _customTag ?? _selectedTag;
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('sessions')
+        .add({
+          'sessionName': _sessionName,
+          'startTime': _sessionStart,
+          'endTime': endTime,
+          'duration': durationMinutes,
+          'planned': plannedMinutes,
+          'tag': tagToSave,
+          'ambient': _ambientSound,
+          'distracted': _distracted,
+          'aborted': false,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
 
     // Calculate and update focusScore in user's root document for leaderboard
     try {
@@ -265,19 +305,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         if (v is String) return num.tryParse(v) ?? 0;
         return 0;
       }
+
       final sessions = allSessions.where((data) {
         final dur = _extractDuration(data['duration']);
         final aborted = data['aborted'] == true;
         return dur >= 2 && !aborted;
       }).toList();
-  // Diagnostic logs
-  // ignore: avoid_print
-  print('home_screen: recomputing focusScore for ${user.uid}, totalSessions=${allSessions.length}, usable=${sessions.length}');
-  // print full session docs to inspect keys and types
-  // ignore: avoid_print
-  print('home_screen: all session docs: $allSessions');
-  // ignore: avoid_print
-  print('home_screen: durations=${sessions.map((s) => s['duration']).toList()}');
+      // Diagnostic logs
+      // ignore: avoid_print
+      print(
+        'home_screen: recomputing focusScore for ${user.uid}, totalSessions=${allSessions.length}, usable=${sessions.length}',
+      );
+      // print full session docs to inspect keys and types
+      // ignore: avoid_print
+      print('home_screen: all session docs: $allSessions');
+      // ignore: avoid_print
+      print(
+        'home_screen: durations=${sessions.map((s) => s['duration']).toList()}',
+      );
       double score = 0.0;
       double totalWeight = 0.0;
       final weights = [0.4, 0.25, 0.15, 0.12, 0.08];
@@ -307,10 +352,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         // try transaction fallback
         try {
           await FirebaseFirestore.instance.runTransaction((tx) async {
-            final docRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
+            final docRef = FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid);
             final snapshot = await tx.get(docRef);
             final existing = snapshot.exists ? snapshot.data() ?? {} : {};
-            final merged = {...existing, 'focusScore': double.parse(focusScore.toStringAsFixed(2)), 'lastUpdatedFocusAt': FieldValue.serverTimestamp()};
+            final merged = {
+              ...existing,
+              'focusScore': double.parse(focusScore.toStringAsFixed(2)),
+              'lastUpdatedFocusAt': FieldValue.serverTimestamp(),
+            };
             tx.set(docRef, merged);
           });
         } catch (e, st) {
@@ -334,11 +385,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   }
 
-  Future<File> _localFileForId(String id, String? downloadUrl, String? storagePath) async {
+  Future<File> _localFileForId(
+    String id,
+    String? downloadUrl,
+    String? storagePath,
+  ) async {
     final dir = await getApplicationDocumentsDirectory();
     String ext = 'mp3';
-    if (downloadUrl is String && downloadUrl.contains('.')) ext = downloadUrl.split('.').last;
-    else if (storagePath is String && storagePath.contains('.')) ext = storagePath.split('.').last;
+    if (downloadUrl is String && downloadUrl.contains('.'))
+      ext = downloadUrl.split('.').last;
+    else if (storagePath is String && storagePath.contains('.'))
+      ext = storagePath.split('.').last;
     return File('${dir.path}${Platform.pathSeparator}$id.$ext');
   }
 
@@ -356,27 +413,47 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       final user = FirebaseAuth.instance.currentUser;
       String? selectedId;
       if (user != null) {
-        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
         selectedId = userDoc.data()?['selectedSoundId'];
       }
 
       if (selectedId == null) {
         // No bundled asset available any more. Prompt user to pick a sound in Sounds.
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No ambient sound selected. Open Sounds to add one.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No ambient sound selected. Open Sounds to add one.'),
+          ),
+        );
         return;
       }
 
-      final soundDoc = await FirebaseFirestore.instance.collection('sounds').doc(selectedId).get();
+      final soundDoc = await FirebaseFirestore.instance
+          .collection('sounds')
+          .doc(selectedId)
+          .get();
       if (!soundDoc.exists) {
         // If the referenced sound doc no longer exists, prompt the user to reselect a sound.
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Selected ambient sound not found — open Sounds to choose another.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Selected ambient sound not found — open Sounds to choose another.',
+            ),
+          ),
+        );
         return;
       }
       final data = soundDoc.data()!;
       final downloadUrl = data['downloadUrl'];
       final storagePath = data['storagePath'];
 
-      final localFile = await _localFileForId(selectedId, downloadUrl, storagePath);
+      final localFile = await _localFileForId(
+        selectedId,
+        downloadUrl,
+        storagePath,
+      );
       if (await localFile.exists()) {
         await _audioPlayer.setReleaseMode(ReleaseMode.loop);
         await _audioPlayer.play(DeviceFileSource(localFile.path));
@@ -388,7 +465,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         url = await _getDownloadUrlFromStorage(storagePath);
       }
       if (url == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No download URL for selected ambient sound')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No download URL for selected ambient sound'),
+          ),
+        );
         return;
       }
 
@@ -397,7 +478,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     } catch (e) {
       // ignore: avoid_print
       print('home_screen: ambient playback failed: $e');
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ambient playback failed')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Ambient playback failed')));
     }
   }
 
@@ -414,23 +497,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       if (!granted) {
         // Ask user to grant access. We open the DND settings screen (system-level),
         // but also offer to open the app info page where users can enable notification policy if needed.
-        messenger.showSnackBar(SnackBar(
-          content: const Text('Please grant Do Not Disturb access in system settings'),
-          action: SnackBarAction(label: 'App info', onPressed: () async {
-            await DndHelper.openAppSettings();
-          }),
-        ));
+        messenger.showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Please grant Do Not Disturb access in system settings',
+            ),
+            action: SnackBarAction(
+              label: 'App info',
+              onPressed: () async {
+                await DndHelper.openAppSettings();
+              },
+            ),
+          ),
+        );
         await DndHelper.openSettings();
         return;
       }
       if (value) {
         await DndHelper.enableDnd();
         setState(() => _dndEnabled = true);
-        messenger.showSnackBar(const SnackBar(content: Text('Do Not Disturb enabled')));
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Do Not Disturb enabled')),
+        );
       } else {
         await DndHelper.disableDnd();
         setState(() => _dndEnabled = false);
-        messenger.showSnackBar(const SnackBar(content: Text('Do Not Disturb disabled')));
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Do Not Disturb disabled')),
+        );
       }
     } catch (e) {
       // If native plugin handlers haven't been compiled into the running app, MissingPluginException is thrown.
@@ -438,9 +532,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       // ignore: avoid_print
       print('home_screen: DND toggle error: $e');
       if (e is MissingPluginException) {
-        messenger.showSnackBar(const SnackBar(content: Text('DND native handler unavailable — stop and rebuild the app (flutter run) to enable DND functionality')));
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'DND native handler unavailable — stop and rebuild the app (flutter run) to enable DND functionality',
+            ),
+          ),
+        );
       } else {
-        messenger.showSnackBar(const SnackBar(content: Text('Failed to toggle Do Not Disturb')));
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Failed to toggle Do Not Disturb')),
+        );
       }
     }
   }
@@ -448,27 +550,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final totalSeconds = _hours * 3600 + _minutes * 60;
-    final canStart = _sessionName.trim().isNotEmpty && (_focusMode == 1 || (_hours != 0 || _minutes != 0));
+    final canStart =
+        _sessionName.trim().isNotEmpty &&
+        (_focusMode == 1 || (_hours != 0 || _minutes != 0));
     final focusScoreAsync = ref.watch(focusScoreProvider);
     final stretchAsync = ref.watch(stretchSessionProvider);
-    // Set dials reactively to stretch value
+    // Set dials reactively to stretch value. If we're currently showing the
+    // countdown selector (not counting) and the user hasn't manually changed
+    // the dials, force-apply the adaptive default. This ensures the
+    // count-up -> countdown transition is handled even if it bypassed the
+    // segmented-control onTap path.
     stretchAsync.when(
-      data: (stretch) => _setDialsFromStretch(stretch),
+      data: (stretch) {
+        if (_focusMode == 0 && !_isCountingDown && !_userManuallyChangedDials) {
+          _setDialsFromStretch(stretch, force: true);
+        } else {
+          _setDialsFromStretch(stretch);
+        }
+      },
       loading: () {},
       error: (e, _) {},
     );
-    return WillPopScope(
-      onWillPop: () async {
-        if (Navigator.of(context).canPop()) {
-          Navigator.of(context).pop();
-          return false;
-        }
-        return true;
-      },
-      child: Scaffold(
-        key: _scaffoldKey,
-  drawer: const AppDrawer(),
-        appBar: AppBar(
+    return Scaffold(
+      key: _scaffoldKey,
+      drawer: const AppDrawer(),
+      appBar: AppBar(
           leading: IconButton(
             icon: const Icon(Icons.menu, color: Colors.white),
             onPressed: () => _scaffoldKey.currentState?.openDrawer(),
@@ -479,19 +585,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             Padding(
               padding: const EdgeInsets.only(right: 16, top: 8),
               child: GestureDetector(
-                onTap: () => GoRouter.of(context).go('/history'),
-                onLongPress: () => GoRouter.of(context).go('/settings'),
+                onTap: () => GoRouter.of(context).push('/profile'),
+                onLongPress: () => GoRouter.of(context).push('/settings'),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    const Text('Focus score', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                    const Text(
+                      'Focus score',
+                      style: TextStyle(color: Colors.white54, fontSize: 12),
+                    ),
                     focusScoreAsync.when(
                       data: (score) => Text(
                         score.toStringAsFixed(1),
-                        style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                      loading: () => const SizedBox(width: 24, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-                      error: (e, _) => const Text('-', style: TextStyle(color: Colors.white)),
+                      loading: () => const SizedBox(
+                        width: 24,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      error: (e, _) => const Text(
+                        '-',
+                        style: TextStyle(color: Colors.white),
+                      ),
                     ),
                   ],
                 ),
@@ -499,11 +619,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ],
         ),
-        body: Padding(
-          padding: const EdgeInsets.all(46.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+      body: Padding(
+        padding: const EdgeInsets.all(46.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
               // Segmented selector (choose countdown or count-up) — only show before session starts
               if (!_isCountingDown) ...[
                 const SizedBox(height: 8),
@@ -515,20 +635,73 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         color: Colors.grey[900],
                         borderRadius: BorderRadius.circular(18),
                       ),
-                      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 2,
+                        vertical: 2,
+                      ),
                       child: Row(
                         children: [
                           _SegmentedIconButton(
                             icon: Icons.hourglass_bottom,
                             selected: _focusMode == 0,
-                            onTap: () => setState(() => _focusMode = 0),
+                            onTap: () async {
+                              if (_focusMode == 0) return;
+                              // switch to countdown mode
+                              setState(() => _focusMode = 0);
+                              // Reapply adaptive default only when it makes sense
+                              // (we last set dials programmatically or we've never
+                              // applied the stretch). This avoids overriding a
+                              // user's manual adjustments.
+                              // Decide whether to reapply adaptive default.
+                              // Reapply only if the user hasn't manually changed the
+                              // dials since we left countdown. We detect that by
+                              // (a) an explicit manual-change flag, or (b) a
+                              // snapshot taken when switching to count-up — if the
+                              // current dials still match the snapshot, the user
+                              // didn't change them while on count-up.
+                              final bool unchangedSinceSnapshot =
+                                  _preCountUpHours == null ||
+                                      (_hours == _preCountUpHours && _minutes == _preCountUpMinutes);
+                              if (!_userManuallyChangedDials && unchangedSinceSnapshot) {
+                                final av = ref.read(stretchSessionProvider);
+                                if (av is AsyncData<int>) {
+                                  _setDialsFromStretch(av.value, force: true);
+                                  // clear snapshot after applying
+                                  _preCountUpHours = null;
+                                  _preCountUpMinutes = null;
+                                } else {
+                                  try {
+                                    final stretch = await ref.read(stretchSessionProvider.future);
+                                    _setDialsFromStretch(stretch, force: true);
+                                    // clear snapshot after applying
+                                    _preCountUpHours = null;
+                                    _preCountUpMinutes = null;
+                                  } catch (_) {
+                                    // ignore failures to fetch stretch
+                                  }
+                                }
+                              }
+                            },
                             size: 32,
                           ),
-                          Container(width: 1, height: 24, color: Colors.grey[800]),
+                          Container(
+                            width: 1,
+                            height: 24,
+                            color: Colors.grey[800],
+                          ),
                           _SegmentedIconButton(
                             icon: Icons.all_inclusive,
                             selected: _focusMode == 1,
-                            onTap: () => setState(() => _focusMode = 1),
+                            onTap: () {
+                              if (_focusMode == 1) return;
+                              // snapshot current dials so we can tell later if the
+                              // user changed them while on count-up. We treat the
+                              // snapshot itself as not a manual change.
+                              _preCountUpHours = _hours;
+                              _preCountUpMinutes = _minutes;
+                              _userManuallyChangedDials = false;
+                              setState(() => _focusMode = 1);
+                            },
                             size: 32,
                           ),
                         ],
@@ -563,31 +736,49 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             ],
                           ),
                         ),
-                        // Stretch tooltip
-                        if (!_isCountingDown)
+                        // Stretch tooltip — show only when countdown mode is selected and not currently counting
+                        if (_focusMode == 0 && !_isCountingDown)
                           Positioned(
                             top: 12,
                             right: 0,
                             child: Consumer(
                               builder: (context, ref, _) {
-                                final stretchAsync = ref.watch(stretchSessionProvider);
-                                final focusScoreAsync = ref.watch(focusScoreProvider);
+                                final stretchAsync = ref.watch(
+                                  stretchSessionProvider,
+                                );
+                                final focusScoreAsync = ref.watch(
+                                  focusScoreProvider,
+                                );
                                 return stretchAsync.when(
                                   data: (stretch) {
                                     return focusScoreAsync.when(
                                       data: (score) {
-                                        if (stretch > 0 && (stretch - score).abs() >= 1) {
+                    if (_focusMode != 0) return const SizedBox.shrink();
+                    if (stretch > 0 &&
+                      (stretch - score).abs() >= 1) {
                                           final diff = stretch - score;
                                           final sign = diff > 0 ? '+' : '';
                                           return Tooltip(
-                                            message: 'Adaptive stretch target based on your recent completion rate.',
+                                            message:
+                                                'Adaptive stretch target based on your recent completion rate.',
                                             child: Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 10,
+                                                    vertical: 4,
+                                                  ),
                                               decoration: BoxDecoration(
                                                 color: Colors.blueGrey[900],
-                                                borderRadius: BorderRadius.circular(8),
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
                                               ),
-                                              child: Text('$sign${diff.round()} min stretch', style: const TextStyle(color: Colors.white, fontSize: 13)),
+                                              child: Text(
+                                                '$sign${diff.round()} min stretch',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 13,
+                                                ),
+                                              ),
                                             ),
                                           );
                                         }
@@ -621,17 +812,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                       _hours = v;
                                       _programmaticDialSet = false;
                                       _stretchAppliedOnce = true;
+                                      _userManuallyChangedDials = true;
                                     });
                                   },
                                   childDelegate: ListWheelChildBuilderDelegate(
                                     builder: (ctx, i) {
                                       final diff = (i - _hours).abs();
                                       double opacity = 1.0;
-                                      if (diff == 1) opacity = 0.2;
-                                      else if (diff > 1) opacity = 0.08;
+                                      if (diff == 1)
+                                        opacity = 0.2;
+                                      else if (diff > 1)
+                                        opacity = 0.08;
                                       return Opacity(
                                         opacity: opacity,
-                                        child: Text('$i', style: const TextStyle(fontSize: 32, color: Colors.white)),
+                                        child: Text(
+                                          '$i',
+                                          style: const TextStyle(
+                                            fontSize: 32,
+                                            color: Colors.white,
+                                          ),
+                                        ),
                                       );
                                     },
                                     childCount: 12, // 0-11 hours
@@ -639,7 +839,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   controller: _hoursController,
                                 ),
                               ),
-                              const Text(':', style: TextStyle(fontSize: 32, color: Colors.white70)),
+                              const Text(
+                                ':',
+                                style: TextStyle(
+                                  fontSize: 32,
+                                  color: Colors.white70,
+                                ),
+                              ),
                               SizedBox(
                                 width: 60,
                                 height: 120,
@@ -652,17 +858,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                       _minutes = v;
                                       _programmaticDialSet = false;
                                       _stretchAppliedOnce = true;
+                                      _userManuallyChangedDials = true;
                                     });
                                   },
                                   childDelegate: ListWheelChildBuilderDelegate(
                                     builder: (ctx, i) {
                                       final diff = (i - _minutes).abs();
                                       double opacity = 1.0;
-                                      if (diff == 1) opacity = 0.2;
-                                      else if (diff > 1) opacity = 0.08;
+                                      if (diff == 1)
+                                        opacity = 0.2;
+                                      else if (diff > 1)
+                                        opacity = 0.08;
                                       return Opacity(
                                         opacity: opacity,
-                                        child: Text(i.toString().padLeft(2, '0'), style: const TextStyle(fontSize: 32, color: Colors.white)),
+                                        child: Text(
+                                          i.toString().padLeft(2, '0'),
+                                          style: const TextStyle(
+                                            fontSize: 32,
+                                            color: Colors.white,
+                                          ),
+                                        ),
                                       );
                                     },
                                     childCount: 60,
@@ -673,16 +888,38 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             ],
                           ),
                         if (!_isCountingDown && _focusMode == 1)
-                          const Icon(Icons.all_inclusive, color: Colors.white, size: 80),
+                          const Icon(
+                            Icons.all_inclusive,
+                            color: Colors.white,
+                            size: 80,
+                          ),
                         if (_isCountingDown)
                           TimerWidget(
                             key: _timerKey,
-                            durationMinutes: _focusMode == 0 ? (_hours * 60 + _minutes) : 0,
-                            mode: _focusMode == 0 ? TimerMode.countdown : TimerMode.countup,
-                            onComplete: _focusMode == 0 ? _onCountdownComplete : null,
+                            durationMinutes: _focusMode == 0
+                                ? (_hours * 60 + _minutes)
+                                : 0,
+                            mode: _focusMode == 0
+                                ? TimerMode.countdown
+                                : TimerMode.countup,
+                            onComplete: _focusMode == 0
+                                ? _onCountdownComplete
+                                : null,
                             onStop: _stopSession,
-                            onAbort: _sessionStartTime != null && DateTime.now().difference(_sessionStartTime!).inSeconds < 60 ? _abortSession : null,
-                            showAbortButton: _sessionStartTime != null && DateTime.now().difference(_sessionStartTime!).inSeconds < 60,
+                            onAbort:
+                                _sessionStartTime != null &&
+                                    DateTime.now()
+                                            .difference(_sessionStartTime!)
+                                            .inSeconds <
+                                        60
+                                ? _abortSession
+                                : null,
+                            showAbortButton:
+                                _sessionStartTime != null &&
+                                DateTime.now()
+                                        .difference(_sessionStartTime!)
+                                        .inSeconds <
+                                    60,
                             showAmbientSound: true,
                             sessionName: _sessionName,
                             tag: _customTag ?? _selectedTag,
@@ -692,10 +929,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 _isPaused = isPaused;
                               });
                             },
-                            onToggleAmbient: () => _toggleAmbient(_ambientSound),
+                            onToggleAmbient: () =>
+                                _toggleAmbient(_ambientSound),
                             ambientSound: _ambientSound,
-                            showAmbientSoundButton: false, // Hide ambient sound button since we have toggle below
-                            showControlButtons: false, // Hide control buttons since we'll add them separately at the bottom
+                            showAmbientSoundButton:
+                                false, // Hide ambient sound button since we have toggle below
+                            showControlButtons:
+                                false, // Hide control buttons since we'll add them separately at the bottom
                             timerKey: _timerKey,
                           ),
                         // Tag selector (smaller, translucent, closer to center in countdown)
@@ -709,7 +949,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               Align(
                                 alignment: Alignment.center,
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 2,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: Colors.grey[850],
                                     borderRadius: BorderRadius.circular(14),
@@ -717,16 +960,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   child: DropdownButton<String>(
                                     value: _customTag ?? _selectedTag,
                                     dropdownColor: Colors.grey[900],
-                                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 14,
+                                    ),
                                     underline: const SizedBox(),
                                     iconEnabledColor: Colors.white,
                                     borderRadius: BorderRadius.circular(12),
                                     isDense: true,
                                     items: [
-                                      ...kPredefinedTags.where((tag) => tag != 'Other').map((tag) => DropdownMenuItem(
-                                            value: tag,
-                                            child: Text(tag),
-                                          )),
+                                      ...kPredefinedTags
+                                          .where((tag) => tag != 'Other')
+                                          .map(
+                                            (tag) => DropdownMenuItem(
+                                              value: tag,
+                                              child: Text(tag),
+                                            ),
+                                          ),
                                       if (_customTag != null)
                                         DropdownMenuItem(
                                           value: _customTag,
@@ -744,7 +994,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                               if (v == 'Other') {
                                                 _showCustomTagInput = true;
                                                 _selectedTag = 'Other';
-                                              } else if (v != null && v != _customTag) {
+                                              } else if (v != null &&
+                                                  v != _customTag) {
                                                 _selectedTag = v;
                                                 _customTag = null;
                                                 _showCustomTagInput = false;
@@ -784,16 +1035,27 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                         },
                                         decoration: InputDecoration(
                                           hintText: 'Enter custom tag',
-                                          hintStyle: const TextStyle(color: Colors.white54),
+                                          hintStyle: const TextStyle(
+                                            color: Colors.white54,
+                                          ),
                                           filled: true,
                                           fillColor: Colors.grey[900],
                                           border: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(10),
+                                            borderRadius: BorderRadius.circular(
+                                              10,
+                                            ),
                                             borderSide: BorderSide.none,
                                           ),
-                                          contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                                          contentPadding:
+                                              const EdgeInsets.symmetric(
+                                                vertical: 10,
+                                                horizontal: 12,
+                                              ),
                                         ),
-                                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 14,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -817,29 +1079,37 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     controller: TextEditingController(text: _sessionName),
                     decoration: InputDecoration(
                       hintText: 'Session name',
-                      hintStyle: const TextStyle(color: Colors.white54),
+                      hintStyle: const TextStyle(color: Color(0xFFE0E0E0)),
                       filled: true,
                       fillColor: Colors.grey[900],
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                         borderSide: BorderSide.none,
                       ),
-                      contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: 14,
+                        horizontal: 16,
+                      ),
                     ),
                     style: const TextStyle(color: Colors.white, fontSize: 16),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 24),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text('Ambient Sound', style: TextStyle(color: Colors.white, fontSize: 16)),
+                    const Text(
+                      'Ambient Sound',
+                      style: TextStyle(color: Color(0xFFE0E0E0), fontSize: 16),
+                    ),
                     const SizedBox(width: 12),
                     Switch(
                       value: _ambientSound,
                       onChanged: (v) => _toggleAmbient(v),
                       activeColor: Colors.grey,
-                      trackOutlineColor: MaterialStateProperty.all(Colors.transparent),
+                      trackOutlineColor: MaterialStateProperty.all(
+                        Colors.transparent,
+                      ),
                       trackColor: MaterialStateProperty.all(Colors.white24),
                     ),
                   ],
@@ -848,13 +1118,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text('Do Not Disturb', style: TextStyle(color: Colors.white, fontSize: 16)),
+                    const Text(
+                      'Do Not Disturb',
+                      style: TextStyle(color: Colors.white, fontSize: 16),
+                    ),
                     const SizedBox(width: 12),
                     Switch(
                       value: _dndEnabled,
                       onChanged: (v) => _toggleDnd(v),
                       activeColor: Colors.grey,
-                      trackOutlineColor: MaterialStateProperty.all(Colors.transparent),
+                      trackOutlineColor: MaterialStateProperty.all(
+                        Colors.transparent,
+                      ),
                       trackColor: MaterialStateProperty.all(Colors.white24),
                     ),
                   ],
@@ -868,7 +1143,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
                       // Abort button
-                      if (_sessionStartTime != null && DateTime.now().difference(_sessionStartTime!).inSeconds < 60)
+                      if (_sessionStartTime != null &&
+                          DateTime.now()
+                                  .difference(_sessionStartTime!)
+                                  .inSeconds <
+                              60)
                         GestureDetector(
                           onTap: _abortSession,
                           child: Container(
@@ -944,29 +1223,37 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     onChanged: (v) => setState(() => _sessionName = v),
                     decoration: InputDecoration(
                       hintText: 'session name',
-                      hintStyle: const TextStyle(color: Colors.white54),
+                      hintStyle: const TextStyle(color: Color(0xFFE0E0E0)),
                       filled: true,
                       fillColor: Colors.grey[900],
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                         borderSide: BorderSide.none,
                       ),
-                      contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: 14,
+                        horizontal: 16,
+                      ),
                     ),
                     style: const TextStyle(color: Colors.white, fontSize: 16),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 24),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text('Ambient Sound', style: TextStyle(color: Colors.white, fontSize: 16)),
+                    const Text(
+                      'Ambient Sound',
+                      style: TextStyle(color: Color(0xFFE0E0E0), fontSize: 16),
+                    ),
                     const SizedBox(width: 12),
                     Switch(
                       value: _ambientSound,
                       onChanged: (v) => _toggleAmbient(v),
                       activeColor: Colors.grey,
-                      trackOutlineColor: MaterialStateProperty.all(Colors.transparent),
+                      trackOutlineColor: MaterialStateProperty.all(
+                        Colors.transparent,
+                      ),
                       trackColor: MaterialStateProperty.all(Colors.white24),
                     ),
                   ],
@@ -983,16 +1270,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       alignment: Alignment.center,
-                      child: const Text('Start Flow', style: TextStyle(fontSize: 18, color: Colors.white)),
+                      child: const Text(
+                        'Start Flow',
+                        style: TextStyle(fontSize: 18, color: Colors.white),
+                      ),
                     ),
                   ),
                 ),
               ],
-
             ],
           ),
-        ),
-      ),
+        )
     );
   }
 
@@ -1008,7 +1296,12 @@ class _SegmentedIconButton extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
   final double size;
-  const _SegmentedIconButton({required this.icon, required this.selected, required this.onTap, this.size = 40});
+  const _SegmentedIconButton({
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+    this.size = 40,
+  });
 
   @override
   Widget build(BuildContext context) {

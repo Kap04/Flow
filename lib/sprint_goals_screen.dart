@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'dart:math';
+// removed unused dart:math import
 import 'sprint_sequence_provider.dart';
 import 'app_drawer.dart';
 
@@ -174,7 +174,7 @@ class _SprintGoalsScreenState extends ConsumerState<SprintGoalsScreen> {
                       // Navigate to first session
                       final firstSession = sessions.first;
                       print('▶️ Starting sprint sequence: ${firstSession.sprintName} — duration ${firstSession.durationMinutes} minutes');
-                      GoRouter.of(context).go('/sprint-timer?goalName=${Uri.encodeComponent(firstSession.goalName)}&sprintName=${Uri.encodeComponent(firstSession.sprintName)}&durationMinutes=${firstSession.durationMinutes}&sprintIndex=${firstSession.sprintIndex}&phase=${firstSession.phase.name}');
+                      GoRouter.of(context).push('/sprint-timer?goalName=${Uri.encodeComponent(firstSession.goalName)}&sprintName=${Uri.encodeComponent(firstSession.sprintName)}&durationMinutes=${firstSession.durationMinutes}&sprintIndex=${firstSession.sprintIndex}&phase=${firstSession.phase.name}');
                     }
                   },
                   style: ElevatedButton.styleFrom(

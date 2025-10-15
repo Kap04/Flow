@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:circular_countdown_timer/circular_countdown_timer.dart';
+// removed unused import: circular_countdown_timer
 import 'dart:async';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
@@ -14,7 +14,7 @@ import 'dnd_helper.dart';
 import 'package:flutter/services.dart';
 import 'sprint_sequence_provider.dart';
 import 'timer_notification_manager.dart';
-import 'notification_service.dart';
+// removed unused import: notification_service.dart
 
 class SprintTimerScreen extends ConsumerStatefulWidget {
   final String goalName;
@@ -295,7 +295,7 @@ class _SprintTimerScreenState extends ConsumerState<SprintTimerScreen> {
     final before = ref.read(sprintSequenceProvider);
     if (!before.hasNextSession) {
       // sequence finished
-      if (mounted) GoRouter.of(context).go('/sprints');
+      if (mounted) context.pop();
       return;
     }
     // advance provider
@@ -304,7 +304,7 @@ class _SprintTimerScreenState extends ConsumerState<SprintTimerScreen> {
     final after = ref.read(sprintSequenceProvider);
     final next = after.currentSession;
     if (next == null) {
-      if (mounted) GoRouter.of(context).go('/sprints');
+      if (mounted) context.pop();
       return;
     }
     // Apply the next session in-place (restart timer widget)
@@ -340,7 +340,7 @@ class _SprintTimerScreenState extends ConsumerState<SprintTimerScreen> {
     await _saveSprintSession(false, aborted: true);
     _notifManager?.stop();
     if (mounted) {
-      GoRouter.of(context).go('/sprints');
+      context.pop();
     }
   }
 
@@ -385,7 +385,7 @@ class _SprintTimerScreenState extends ConsumerState<SprintTimerScreen> {
       final nextSession = after.currentSession;
       if (nextSession == null) {
         // fallback
-        if (mounted) GoRouter.of(context).go('/sprints');
+        if (mounted) context.pop();
         return;
       }
       print('🎯 _navigateToNextSprint: Next session = ${nextSession.sprintName}, duration=${nextSession.durationMinutes}, index=${nextSession.sprintIndex}, phase=${nextSession.phase}');
@@ -396,7 +396,7 @@ class _SprintTimerScreenState extends ConsumerState<SprintTimerScreen> {
       // Sequence complete, go back to sprints screen
       print('🎯 _navigateToNextSprint: Sequence complete, going back to sprints');
       if (mounted) {
-        GoRouter.of(context).go('/sprints');
+        context.pop();
       }
     }
   }

@@ -5,6 +5,7 @@ import 'dart:async';
 import 'gradients.dart';
 import 'dnd_helper.dart';
 import 'package:flutter/services.dart';
+import 'notification_service.dart';
 
 enum TimerMode { countdown, countup }
 
@@ -64,6 +65,7 @@ class TimerWidgetState extends State<TimerWidget> {
   bool _initialized = false;
   int _countUpSeconds = 0;
   Timer? _countUpTimer;
+  Timer? _countUpNotificationTimer;
   Timer? _tooltipTimer;
   bool _showAddTimeTooltip = false;
   int _lastDuration = 0;
@@ -132,6 +134,9 @@ class TimerWidgetState extends State<TimerWidget> {
         _countDownController.start();
       } else {
         _countUpSeconds = 0;
+        // ensure add-time tooltip is not shown for count-up and cancel any running tooltip timer
+        _showAddTimeTooltip = false;
+        _tooltipTimer?.cancel();
       }
     }
     
@@ -139,12 +144,21 @@ class TimerWidgetState extends State<TimerWidget> {
       _initialized = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (widget.mode == TimerMode.countdown) {
+          // If switching to countdown, cancel any previous count-up notifications
+          try {
+            NotificationService.cancelTimerNotification();
+          } catch (_) {}
           _countDownController.start();
         } else {
           _startCountUp();
+          // ensure tooltip isn't active for count-up mode
+          setState(() {
+            _showAddTimeTooltip = false;
+          });
         }
-        
-        if (widget.showAddTimeTooltip) {
+
+        // Only start the add-time tooltip for countdown mode
+        if (widget.showAddTimeTooltip && widget.mode == TimerMode.countdown) {
           _startTooltipTimer();
         }
       });
@@ -152,10 +166,33 @@ class TimerWidgetState extends State<TimerWidget> {
   }
 
   void _startCountUp() {
+    // cancel tooltip timer — count-up should not show add-time tooltip
+    _tooltipTimer?.cancel();
     _countUpTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!widget.isPaused) {
         setState(() => _countUpSeconds++);
       }
+    });
+    // Start a notification that shows elapsed time for the count-up timer
+    try {
+      NotificationService.showCountupNotification(
+        title: widget.sessionName ?? 'Session running',
+        body: widget.tag ?? 'Focus session',
+        elapsedSeconds: _countUpSeconds,
+        ongoing: true,
+      );
+    } catch (_) {}
+
+    _countUpNotificationTimer?.cancel();
+    _countUpNotificationTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      try {
+        NotificationService.showCountupNotification(
+          title: widget.sessionName ?? 'Session running',
+          body: widget.tag ?? 'Focus session',
+          elapsedSeconds: _countUpSeconds,
+          ongoing: true,
+        );
+      } catch (_) {}
     });
   }
 
@@ -178,14 +215,6 @@ class TimerWidgetState extends State<TimerWidget> {
               }
             }
           }
-        } else {
-          // For countup, show tooltip when 5 minutes or less remain
-          final remaining = widget.durationMinutes * 60 - _countUpSeconds;
-          if (remaining <= 300 && remaining > 0) {
-            setState(() => _showAddTimeTooltip = true);
-          } else {
-            setState(() => _showAddTimeTooltip = false);
-          }
         }
       }
     });
@@ -194,9 +223,32 @@ class TimerWidgetState extends State<TimerWidget> {
   @override
   void dispose() {
     _countUpTimer?.cancel();
+    _countUpNotificationTimer?.cancel();
     _tooltipTimer?.cancel();
+    try {
+      NotificationService.cancelTimerNotification();
+    } catch (_) {}
     _audioPlayer.dispose();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant TimerWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.mode != widget.mode) {
+      if (widget.mode == TimerMode.countup) {
+        // entering count-up mode: disable tooltip and cancel its timer
+        _tooltipTimer?.cancel();
+        setState(() => _showAddTimeTooltip = false);
+      } else {
+        // entering countdown: cancel any count-up notification/timers
+        _countUpNotificationTimer?.cancel();
+        _countUpTimer?.cancel();
+        try {
+          NotificationService.cancelTimerNotification();
+        } catch (_) {}
+      }
+    }
   }
 
   String _formatCountUp(int seconds) {
@@ -230,7 +282,8 @@ class TimerWidgetState extends State<TimerWidget> {
                    isReverse: true,
                    isReverseAnimation: true,
 
-                   textStyle: const TextStyle(fontSize: 48, color: Colors.white),
+                   // Slightly larger and bolder timer digits for emphasis
+                   textStyle: const TextStyle(fontSize: 54, color: Colors.white, fontWeight: FontWeight.w600),
                    onComplete: widget.onComplete,
                    onChange: (time) {
                      // Handle tooltip logic in periodic timer
@@ -240,7 +293,7 @@ class TimerWidgetState extends State<TimerWidget> {
                 Center(
                   child: Text(
                     _formatCountUp(_countUpSeconds),
-                    style: const TextStyle(fontSize: 48, color: Colors.white, fontWeight: FontWeight.bold),
+                    style: const TextStyle(fontSize: 54, color: Colors.white, fontWeight: FontWeight.w700),
                   ),
                 ),
               
@@ -277,7 +330,14 @@ class TimerWidgetState extends State<TimerWidget> {
                 // Abort button (only visible if enabled)
                 if (widget.showAbortButton && widget.onAbort != null)
                   GestureDetector(
-                    onTap: widget.onAbort,
+                    onTap: () {
+                      _countUpTimer?.cancel();
+                      _countUpNotificationTimer?.cancel();
+                      try {
+                        NotificationService.cancelTimerNotification();
+                      } catch (_) {}
+                      widget.onAbort?.call();
+                    },
                     child: Container(
                       width: 60,
                       height: 60,
@@ -324,7 +384,14 @@ class TimerWidgetState extends State<TimerWidget> {
                 // Stop
                 if (widget.onStop != null)
                   GestureDetector(
-                    onTap: widget.onStop,
+                    onTap: () {
+                      _countUpTimer?.cancel();
+                      _countUpNotificationTimer?.cancel();
+                      try {
+                        NotificationService.cancelTimerNotification();
+                      } catch (_) {}
+                      widget.onStop?.call();
+                    },
                     child: Container(
                       width: 60,
                       height: 60,

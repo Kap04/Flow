@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
+// removed unused material import
 import 'notification_service.dart';
 
 class TimerNotificationManager {

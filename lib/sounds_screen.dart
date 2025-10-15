@@ -9,7 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:file_selector/file_selector.dart';
-import 'package:mime/mime.dart';
+// removed unused mime import
 import 'cloudinary_helper.dart';
 
 class SoundsScreen extends ConsumerStatefulWidget {

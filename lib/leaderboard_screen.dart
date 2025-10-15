@@ -59,7 +59,7 @@ class LeaderboardScreen extends ConsumerWidget {
       final avatar = CircleAvatar(
         radius: 20,
         backgroundColor: Colors.grey[800],
-        backgroundImage: photoUrl != null && photoUrl.isNotEmpty ? NetworkImage(photoUrl) : null,
+  backgroundImage: (photoUrl != null && photoUrl.trim().isNotEmpty) ? NetworkImage(photoUrl.trim()) : null,
         child: (photoUrl == null || photoUrl.isEmpty) ? const Icon(Icons.person, color: Colors.white54) : null,
       );
 

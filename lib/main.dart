@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -17,8 +18,9 @@ import 'leaderboard_screen.dart';
 import 'sounds_screen.dart';
 import 'profile_screen.dart';
 import 'notification_service.dart';
+import 'advanced_settings_screen.dart';
 
-import 'package:async/async.dart';
+// removed unused async import
 
 final onboardingCompleteProvider = StateProvider<bool>((ref) => false);
 final authProvider = StreamProvider<User?>((ref) => FirebaseAuth.instance.authStateChanges());
@@ -101,6 +103,10 @@ class FlowApp extends StatelessWidget {
           builder: (context, state) => const ProfileScreen(),
         ),
         GoRoute(
+          path: '/advanced-settings',
+          builder: (context, state) => const AdvancedSettingsScreen(),
+        ),
+        GoRoute(
           path: '/sprints',
           builder: (context, state) => const SprintGoalsScreen(),
         ),
@@ -161,53 +167,14 @@ class FlowApp extends StatelessWidget {
           ),
         ),
       ),
-      routerConfig: _router,
-      builder: (context, child) {
-        // Intercept system back button: pop if possible, otherwise navigate to /home instead of exiting
-        return WillPopScope(
-          onWillPop: () async {
-            try {
-              // Try to pop any existing route (works better with nested navigators used by GoRouter)
-              final popped = await Navigator.maybePop(context);
-              if (popped) {
-                return false;
-              }
-
-              // Try to read current location from GoRouter dynamically (avoids compile-time issues with different go_router versions)
-              try {
-                final router = GoRouter.of(context);
-                final loc = (router as dynamic).location as String?;
-                if (loc != null) {
-                  if (loc == '/home') {
-                    // allow default behavior (exit)
-                    return true;
-                  }
-                  // navigate to home instead of exiting
-                  router.go('/home');
-                  return false;
-                }
-              } catch (_) {
-                // dynamic access failed or property missing, fall back
-              }
-
-              // Fallback: if child looks like HomeScreen, allow exit; otherwise navigate home
-              if (child != null) {
-                final typeName = child.runtimeType.toString();
-                if (typeName.toLowerCase().contains('home')) {
-                  return true;
-                }
-              }
-
-              GoRouter.of(context).go('/home');
-              return false;
-            } catch (e) {
-              // ignore and allow default
-            }
-            return true;
-          },
-          child: child ?? const SizedBox.shrink(),
-        );
-      },
+  // Use explicit router delegates from GoRouter so we can provide a
+  // backButtonDispatcher. Some Flutter versions assert when
+  // `routerConfig` is used together with other router delegates.
+  routeInformationProvider: _router.routeInformationProvider,
+  routeInformationParser: _router.routeInformationParser,
+  routerDelegate: _router.routerDelegate,
+  backButtonDispatcher: RootBackButtonDispatcher(),
+      builder: (context, child) => child ?? const SizedBox.shrink(),
       debugShowCheckedModeBanner: false,
     );
   }

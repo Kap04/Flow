@@ -1,6 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+// removed unused firestore/auth imports
 import 'sprint_goals_screen.dart';
 
 enum SprintPhase { sprint, rest }

@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+// removed duplicate cloud_firestore import
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:go_router/go_router.dart';
 import 'app_drawer.dart';
@@ -26,6 +26,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   String? _photoUrl;
   num _focusScore = 0;
   Map<DateTime, int> _dailyMinutes = {}; // aggregated minutes per day
+  int _streak = 0;
   bool _loading = true;
   DateTime? _selectedDay;
   String? _selectedDayInfo;
@@ -77,8 +78,26 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     setState(() {
       _dailyMinutes = agg;
+      _streak = _computeStreak(agg);
       _loading = false;
     });
+  }
+
+  int _computeStreak(Map<DateTime, int> agg) {
+    // Count consecutive days with at least one minute of session, starting from today.
+    int streak = 0;
+    final now = DateTime.now();
+    DateTime day = DateTime(now.year, now.month, now.day);
+    while (true) {
+      final minutes = agg[day] ?? 0;
+      if (minutes > 0) {
+        streak += 1;
+        day = day.subtract(const Duration(days: 1));
+      } else {
+        break;
+      }
+    }
+    return streak;
   }
 
   Future<void> _pickAndUploadPhoto() async {
@@ -267,8 +286,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                       child: CircleAvatar(
                         radius: 36,
                         backgroundColor: Colors.grey[800],
-                        backgroundImage: (hasGoogle && googlePhotoUrl != null) ? NetworkImage(googlePhotoUrl) : null,
-                        child: (!hasGoogle || googlePhotoUrl == null) ? const Text('G', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)) : null,
+                        backgroundImage: (hasGoogle && googlePhotoUrl != null && googlePhotoUrl.trim().isNotEmpty)
+                            ? NetworkImage(googlePhotoUrl.trim())
+                            : null,
+                        child: (!hasGoogle || googlePhotoUrl == null || googlePhotoUrl.trim().isEmpty)
+                            ? const Text('G', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+                            : null,
                       ),
                     ));
 
@@ -286,7 +309,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                         child: CircleAvatar(
                           radius: 36,
                           backgroundColor: Colors.grey[800],
-                          backgroundImage: url != null ? CachedNetworkImageProvider(url) : null,
+                          backgroundImage: (url != null && url.trim().isNotEmpty) ? CachedNetworkImageProvider(url.trim()) : null,
                         ),
                       ));
                     }
@@ -411,7 +434,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                           child: _photoUrl == null ? const Icon(Icons.person, size: 40, color: Colors.white54) : null,
                         ),
                       ),
-                      const SizedBox(width: 16),
+                      const SizedBox(width: 24),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -447,8 +470,29 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                               ],
                             ),
                             const SizedBox(height: 8),
-                            Text('Focus score', style: TextStyle(color: Colors.white54)),
-                            Text(_focusScore.toStringAsFixed(1), style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      const Text('Focus score', style: TextStyle(color: Colors.white54)),
+                                      Text(_focusScore.toStringAsFixed(1), style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                                    ],
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      const Text('Streak', style: TextStyle(color: Colors.white54)),
+                                      Text('$_streak', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
                           ],
                         ),
                       ),
@@ -584,7 +628,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   SizedBox(
                     height: 48,
                     child: ElevatedButton(
-                      onPressed: () => GoRouter.of(context).go('/history'),
+                      onPressed: () => GoRouter.of(context).push('/history'),
                       style: ElevatedButton.styleFrom(backgroundColor: Colors.white10),
                       child: const Text('Session history', style: TextStyle(color: Colors.white)),
                     ),
