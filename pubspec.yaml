@@ -19,6 +19,10 @@ dependencies:
   firebase_auth: ^5.3.1
   cloud_firestore: ^5.4.4
   google_sign_in: ^6.2.1
+  googleapis: ^13.2.0
+  googleapis_auth: ^1.6.0
+  intl: ^0.19.0
+  table_calendar: ^3.1.2
   
   # Other dependencies
   flutter_riverpod: ^2.6.1
@@ -37,6 +41,8 @@ dependencies:
   cached_network_image: ^3.2.3
   flutter_local_notifications: ^19.4.2
   permission_handler: ^11.3.0
+  timezone: ^0.10.1
+  android_alarm_manager_plus: ^4.0.3
   # Removed flutter_foreground_task due to Gradle/namespace compatibility issues in some setups.
   # If you need a foreground service, consider adding a compatible package or pinning a
   # specific version that matches your Android Gradle Plugin.
@@ -69,4 +75,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/
+    - assets/sound/
 

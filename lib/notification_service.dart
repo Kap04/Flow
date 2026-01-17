@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/material.dart';
 // removed unused foundation import
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -55,6 +56,9 @@ class NotificationService {
       priority: Priority.defaultPriority,
       onlyAlertOnce: true,
       ongoing: ongoing,
+      // tint the notification with the app blue so the time visually pops on supported devices
+      color: const Color.fromRGBO(10, 172, 223, 1),
+      largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
       styleInformation: const DefaultStyleInformation(true, true),
     );
 
@@ -64,7 +68,8 @@ class NotificationService {
       presentBadge: false,
     );
 
-    final notificationBody = '$body — ${_formatDuration(secondsLeft)} remaining';
+    // Put the time back into the body and separate with a middle dot so the digits stand out
+    final notificationBody = '$body · ${_formatDuration(secondsLeft)}';
     await _plugin.show(
       timerNotificationId,
       title,
@@ -89,6 +94,8 @@ class NotificationService {
       priority: Priority.defaultPriority,
       onlyAlertOnce: true,
       ongoing: ongoing,
+      color: const Color.fromRGBO(10, 172, 223, 1),
+      largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
       styleInformation: const DefaultStyleInformation(true, true),
     );
 
@@ -98,7 +105,7 @@ class NotificationService {
       presentBadge: false,
     );
 
-    final notificationBody = '$body — ${_formatElapsed(elapsedSeconds)} elapsed';
+    final notificationBody = '$body · ${_formatElapsed(elapsedSeconds)}';
     await _plugin.show(
       timerNotificationId,
       title,

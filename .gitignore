@@ -47,3 +47,7 @@ app.*.map.json
 # Local Android signing files
 android/key.properties
 keystore/
+.vercel
+
+node_modules/
+

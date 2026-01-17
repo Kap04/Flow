@@ -4,44 +4,79 @@ import 'package:go_router/go_router.dart';
 // removed unused dart:math import
 import 'sprint_sequence_provider.dart';
 import 'app_drawer.dart';
+import 'planner/planner_model.dart';
+import 'home_screen.dart';
 
 class Sprint {
   String id;
   String name;
   int duration; // in minutes
   int breakDuration; // in minutes
-  Sprint({required this.id, required this.name, required this.duration, required this.breakDuration});
+  String tag; // in minutes
+  Sprint({required this.id, required this.name, required this.duration, required this.breakDuration, required this.tag});
 }
 
 class GoalState {
   String goalName;
+  String goalTag;
   List<Sprint> sprints;
-  GoalState({required this.goalName, required this.sprints});
-  GoalState copyWith({String? goalName, List<Sprint>? sprints}) => GoalState(
+  GoalState({required this.goalName, required this.goalTag, required this.sprints});
+  GoalState copyWith({String? goalName, String? goalTag, List<Sprint>? sprints}) => GoalState(
     goalName: goalName ?? this.goalName,
+    goalTag: goalTag ?? this.goalTag,
     sprints: sprints ?? this.sprints,
   );
 }
 
 class GoalNotifier extends StateNotifier<GoalState> {
   GoalNotifier()
-      : super(GoalState(goalName: 'Read 50 pages', sprints: List.generate(4, (i) => Sprint(
+      : super(GoalState(goalName: '', goalTag: kPredefinedTags[0], sprints: List.generate(4, (i) => Sprint(
           id: UniqueKey().toString(),
-          name: 'Sprint ${i + 1}',
+          name: 'Block ${i + 1}',
           duration: 25,
           breakDuration: 5,
+          tag: kPredefinedTags[0],
         ))));
 
   void setGoalName(String name) => state = state.copyWith(goalName: name);
+  void setGoalTag(String tag) {
+    state = state.copyWith(goalTag: tag);
+    updateAllSprintTags();
+  }
+  
+  void initializeFromScheduledSession({required String goalName, required List<Sprint> sprints}) {
+    state = GoalState(goalName: goalName, goalTag: kPredefinedTags[0], sprints: sprints);
+  }
+  
   void addSprint() {
     final lastBreak = state.sprints.isNotEmpty ? state.sprints.last.breakDuration : 5;
+    // Update all existing sprints to use current goalTag
+    final updatedSprints = state.sprints.map((s) => Sprint(
+      id: s.id,
+      name: s.name,
+      duration: s.duration,
+      breakDuration: s.breakDuration,
+      tag: state.goalTag,
+    )).toList();
     state = state.copyWith(sprints: [
-      ...state.sprints,
-      Sprint(id: UniqueKey().toString(), name: 'Sprint ${state.sprints.length + 1}', duration: 25, breakDuration: lastBreak),
+      ...updatedSprints,
+      Sprint(id: UniqueKey().toString(), name: 'Block ${state.sprints.length + 1}', duration: 25, breakDuration: lastBreak, tag: state.goalTag),
     ]);
   }
+  
+  void updateAllSprintTags() {
+    // Update all sprints to use current goalTag
+    final updatedSprints = state.sprints.map((s) => Sprint(
+      id: s.id,
+      name: s.name,
+      duration: s.duration,
+      breakDuration: s.breakDuration,
+      tag: state.goalTag,
+    )).toList();
+    state = state.copyWith(sprints: updatedSprints);
+  }
   void removeSprint(String id) => state = state.copyWith(sprints: state.sprints.where((s) => s.id != id).toList());
-  void updateSprint(String id, {String? name, int? duration}) {
+  void updateSprint(String id, {String? name, int? duration, String? tag}) {
     state = state.copyWith(sprints: [
       for (final s in state.sprints)
         if (s.id == id)
@@ -50,6 +85,7 @@ class GoalNotifier extends StateNotifier<GoalState> {
             name: name ?? s.name,
             duration: duration ?? s.duration,
             breakDuration: s.breakDuration,
+            tag: tag ?? s.tag,
           )
         else
           s,
@@ -64,6 +100,7 @@ class GoalNotifier extends StateNotifier<GoalState> {
             name: s.name,
             duration: s.duration,
             breakDuration: breakDuration,
+            tag: s.tag,
           )
         else
           s,
@@ -74,7 +111,14 @@ class GoalNotifier extends StateNotifier<GoalState> {
 final goalProvider = StateNotifierProvider<GoalNotifier, GoalState>((ref) => GoalNotifier());
 
 class SprintGoalsScreen extends ConsumerStatefulWidget {
-  const SprintGoalsScreen({super.key});
+  final ScheduledSession? scheduledSession;
+  final String? preCreatedSprintId;
+  
+  const SprintGoalsScreen({
+    super.key,
+    this.scheduledSession,
+    this.preCreatedSprintId,
+  });
 
   @override
   ConsumerState<SprintGoalsScreen> createState() => _SprintGoalsScreenState();
@@ -83,12 +127,41 @@ class SprintGoalsScreen extends ConsumerStatefulWidget {
 class _SprintGoalsScreenState extends ConsumerState<SprintGoalsScreen> {
   late TextEditingController _goalController;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  String? _customTag;
 
   @override
   void initState() {
     super.initState();
-    final goal = ref.read(goalProvider);
-    _goalController = TextEditingController(text: goal.goalName);
+    
+    // Check if we're coming from a notification with scheduled session data
+    if (widget.scheduledSession != null) {
+      final session = widget.scheduledSession!;
+      
+      // Convert scheduled session items to sprints
+      final sprints = session.items.map((item) {
+        return Sprint(
+          id: UniqueKey().toString(),
+          name: item.label ?? 'Sprint ${session.items.indexOf(item) + 1}',
+          duration: item.durationMinutes,
+          breakDuration: item.breakAfterMinutes ?? 5,
+          tag: kPredefinedTags[0], // Default to first tag (Unset)
+        );
+      }).toList();
+      
+      // Update the goal provider with the scheduled session data
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref.read(goalProvider.notifier).initializeFromScheduledSession(
+          goalName: session.title,
+          sprints: sprints,
+        );
+      });
+      
+      _goalController = TextEditingController(text: session.title);
+    } else {
+      // Normal initialization
+      final goal = ref.read(goalProvider);
+      _goalController = TextEditingController(text: goal.goalName);
+    }
   }
 
   @override
@@ -109,7 +182,7 @@ class _SprintGoalsScreenState extends ConsumerState<SprintGoalsScreen> {
           icon: const Icon(Icons.menu, color: Colors.white),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
-        title: const Text('Sprint Goals', style: TextStyle(color: Colors.white)),
+        title: const Text('Time Blocks', style: TextStyle(color: Colors.white)),
         backgroundColor: Colors.transparent,
         elevation: 0,
       ),
@@ -118,38 +191,116 @@ class _SprintGoalsScreenState extends ConsumerState<SprintGoalsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // Goal input with tag dropdown
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8.0),
-              child: TextField(
-                controller: _goalController,
-                style: TextStyle(
-                  color: _goalController.text.trim() == 'Read 50 pages' || _goalController.text.trim().isEmpty ? Colors.white54 : Colors.white,
-                  fontSize: 18,
-                  fontStyle: _goalController.text.trim() == 'Read 50 pages' || _goalController.text.trim().isEmpty ? FontStyle.italic : FontStyle.normal,
-                ),
-                decoration: const InputDecoration(
-                  hintText: 'Goal',
-                  hintStyle: TextStyle(color: Colors.white54),
-                  border: InputBorder.none,
-                ),
-                onSubmitted: (v) => ref.read(goalProvider.notifier).setGoalName(v),
+              child: Row(
+                children: [
+                  // Goal input field
+                  Expanded(
+                    child: TextField(
+                      controller: _goalController,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                      ),
+                      decoration: const InputDecoration(
+                        hintText: 'Read 50 pages',
+                        hintStyle: TextStyle(color: Colors.white54, fontStyle: FontStyle.italic),
+                        border: InputBorder.none,
+                      ),
+                      onChanged: (v) => ref.read(goalProvider.notifier).setGoalName(v),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // Tag dropdown
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[900],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey[700]!, width: 1),
+                    ),
+                    child: DropdownButton<String>(
+                      value: _customTag ?? goal.goalTag,
+                      dropdownColor: Colors.grey[900],
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      underline: const SizedBox(),
+                      iconEnabledColor: Colors.white70,
+                      isDense: true,
+                      items: kPredefinedTags.map((tag) {
+                        return DropdownMenuItem(
+                          value: tag,
+                          child: Text(tag),
+                        );
+                      }).toList(),
+                      onChanged: (value) async {
+                        if (value == 'Other') {
+                          final custom = await showDialog<String>(
+                            context: context,
+                            builder: (ctx) {
+                              final controller = TextEditingController();
+                              return AlertDialog(
+                                backgroundColor: Colors.grey[900],
+                                title: const Text('Custom Tag', style: TextStyle(color: Colors.white)),
+                                content: TextField(
+                                  controller: controller,
+                                  autofocus: true,
+                                  style: const TextStyle(color: Colors.white),
+                                  decoration: const InputDecoration(
+                                    hintText: 'Enter tag name',
+                                    hintStyle: TextStyle(color: Colors.white54),
+                                  ),
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx),
+                                    child: const Text('Cancel'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+                                    child: const Text('Save'),
+                                  ),
+                                ],
+                              );
+                            },
+                          );
+                          if (custom != null && custom.isNotEmpty) {
+                            setState(() => _customTag = custom);
+                            ref.read(goalProvider.notifier).setGoalTag(custom);
+                          }
+                        } else if (value != null) {
+                          setState(() => _customTag = null);
+                          ref.read(goalProvider.notifier).setGoalTag(value);
+                        }
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 24),
             Expanded(
-              child: ListView.builder(
-                itemCount: goal.sprints.length * 2 - 1,
-                itemBuilder: (context, i) {
-                  if (i.isEven) {
-                    final idx = i ~/ 2;
-                    final sprint = goal.sprints[idx];
-                    return _SprintTile(sprint: sprint);
-                  } else {
-                    final prevSprint = goal.sprints[(i - 1) ~/ 2];
-                    return _BreakDivider(sprint: prevSprint);
-                  }
-                },
-              ),
+              child: goal.sprints.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No blocks yet. Add a block to get started.',
+                        style: TextStyle(color: Colors.grey[600], fontSize: 16),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: goal.sprints.length * 2 - 1,
+                      itemBuilder: (context, i) {
+                        if (i.isEven) {
+                          final idx = i ~/ 2;
+                          final sprint = goal.sprints[idx];
+                          return _SprintTile(sprint: sprint);
+                        } else {
+                          final prevSprint = goal.sprints[(i - 1) ~/ 2];
+                          return _BreakDivider(sprint: prevSprint);
+                        }
+                      },
+                    ),
             ),
             const SizedBox(height: 12),
             Row(
@@ -157,29 +308,32 @@ class _SprintGoalsScreenState extends ConsumerState<SprintGoalsScreen> {
                 TextButton.icon(
                   onPressed: () => ref.read(goalProvider.notifier).addSprint(),
                   icon: const Icon(Icons.add, color: Colors.white),
-                  label: const Text('Add Sprint', style: TextStyle(color: Colors.white)),
+                  label: const Text('Add Block', style: TextStyle(color: Colors.white)),
                   style: TextButton.styleFrom(foregroundColor: Colors.white),
                 ),
                 const Spacer(),
                 ElevatedButton.icon(
-                  icon: const Icon(Icons.play_arrow, color: Colors.black),
-                  label: const Text('Start Sprint'),
-                  onPressed: () {
-                    final goal = ref.read(goalProvider);
-                    if (goal.sprints.isNotEmpty) {
-                      // Create sprint sequence
-                      final sessions = createSprintSequence(goal.goalName, goal.sprints);
-                      ref.read(sprintSequenceProvider.notifier).startSequence(sessions);
-                      
-                      // Navigate to first session
-                      final firstSession = sessions.first;
-                      print('▶️ Starting sprint sequence: ${firstSession.sprintName} — duration ${firstSession.durationMinutes} minutes');
-                      GoRouter.of(context).push('/sprint-timer?goalName=${Uri.encodeComponent(firstSession.goalName)}&sprintName=${Uri.encodeComponent(firstSession.sprintName)}&durationMinutes=${firstSession.durationMinutes}&sprintIndex=${firstSession.sprintIndex}&phase=${firstSession.phase.name}');
-                    }
+                  icon: Icon(Icons.play_arrow, color: goal.sprints.isEmpty ? Colors.grey[600] : Colors.black),
+                  label: const Text('Start Time Blocks'),
+                  onPressed: goal.sprints.isEmpty ? null : () {
+                    // Create sprint sequence
+                    final sessions = createSprintSequence(goal.goalName, goal.sprints);
+                    ref.read(sprintSequenceProvider.notifier).startSequence(sessions);
+                    
+                    // Navigate to first session
+                    final firstSession = sessions.first;
+                    print('▶️ Starting sprint sequence: ${firstSession.sprintName} — duration ${firstSession.durationMinutes} minutes');
+                    
+                    // Include preCreatedSprintId if we came from a notification
+                    final preCreatedParam = widget.preCreatedSprintId != null && widget.preCreatedSprintId!.isNotEmpty 
+                        ? '&preCreatedSprintId=${Uri.encodeComponent(widget.preCreatedSprintId!)}' 
+                        : '';
+                    
+                    GoRouter.of(context).push('/sprint-timer?goalName=${Uri.encodeComponent(firstSession.goalName)}&sprintName=${Uri.encodeComponent(firstSession.sprintName)}&durationMinutes=${firstSession.durationMinutes}&sprintIndex=${firstSession.sprintIndex}&phase=${firstSession.phase.name}$preCreatedParam');
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.black,
+                    backgroundColor: goal.sprints.isEmpty ? Colors.grey[800] : Colors.white,
+                    foregroundColor: goal.sprints.isEmpty ? Colors.grey[600] : Colors.black,
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     elevation: 2,
@@ -261,6 +415,11 @@ class _SprintTileState extends ConsumerState<_SprintTile> {
     });
   }
 
+  // Helper method to check if this is a default block name that should be styled as placeholder
+  bool _isDefaultBlockName(String name) {
+    return RegExp(r'^Block \d+$').hasMatch(name);
+  }
+
   @override
   Widget build(BuildContext context) {
     final notifier = ref.read(goalProvider.notifier);
@@ -296,8 +455,12 @@ class _SprintTileState extends ConsumerState<_SprintTile> {
                               onSubmitted: (_) => _saveName(),
                             )
                           : Text(
-                              '${widget.sprint.name}',
-                              style: const TextStyle(color: Colors.white, fontSize: 16),
+                              widget.sprint.name,
+                              style: TextStyle(
+                                color: _isDefaultBlockName(widget.sprint.name) ? Colors.grey : Colors.white,
+                                fontSize: 16,
+                                fontStyle: _isDefaultBlockName(widget.sprint.name) ? FontStyle.italic : FontStyle.normal,
+                              ),
                             ),
                     ),
                   ),

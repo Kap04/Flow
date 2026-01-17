@@ -11,6 +11,7 @@ class SprintSession {
   final int durationMinutes;
   final SprintPhase phase;
   final int? breakDuration;
+  final String? tag;
 
   SprintSession({
     required this.goalName,
@@ -19,6 +20,7 @@ class SprintSession {
     required this.durationMinutes,
     required this.phase,
     this.breakDuration,
+    this.tag,
   });
 }
 
@@ -126,6 +128,7 @@ List<SprintSession> createSprintSequence(String goalName, List<Sprint> sprints) 
       sprintIndex: i,
       durationMinutes: sprint.duration,
       phase: SprintPhase.sprint,
+      tag: sprint.tag,
     ));
     
     // Add break (except after last sprint)
@@ -137,6 +140,7 @@ List<SprintSession> createSprintSequence(String goalName, List<Sprint> sprints) 
         durationMinutes: sprint.breakDuration,
         phase: SprintPhase.rest,
         breakDuration: sprint.breakDuration,
+        tag: sprint.tag,
       ));
     }
   }

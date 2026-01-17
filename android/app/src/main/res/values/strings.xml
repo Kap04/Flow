@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">Flow app blocking service to help you stay focused by preventing access to distracting apps during your flow sessions.</string>
+</resources>

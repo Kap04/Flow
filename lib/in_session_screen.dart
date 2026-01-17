@@ -4,6 +4,7 @@ import 'session_provider.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'app_blocking_screen.dart';
 
 class InSessionScreen extends ConsumerStatefulWidget {
   const InSessionScreen({super.key});
@@ -20,6 +21,20 @@ class _InSessionScreenState extends ConsumerState<InSessionScreen> with WidgetsB
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _startTimer();
+    // Listen for session state changes so we can show the summary when a
+    // running session transitions to not-running (covers both automatic
+    // completion and manual stop triggered elsewhere).
+    ref.listen<SessionState?>(sessionProvider, (previous, next) {
+      final wasRunning = previous?.running == true;
+      final isNowRunning = next?.running == true;
+      if (wasRunning && !isNowRunning) {
+        // Session stopped -> show summary overlay
+        // Use addPostFrameCallback to ensure we have a valid context for dialogs
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _showSummary();
+        });
+      }
+    });
   }
 
   void _startTimer() {
@@ -56,15 +71,18 @@ class _InSessionScreenState extends ConsumerState<InSessionScreen> with WidgetsB
   }
 
   void _endSession() {
+    // End session; the listener added in initState will detect the transition
+    // from running -> not running and present the summary dialog.
     ref.read(sessionProvider.notifier).endSession();
-    _showSummary();
   }
 
   void _showSummary() async {
+    // Show a minimal summary card after the session ends. When the user
+    // taps Done we save the session and return to the previous screen.
     await showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => SessionSummaryModal(),
+      builder: (_) => SimpleSessionSummaryDialog(),
     );
     ref.read(sessionProvider.notifier).reset();
     if (mounted) Navigator.of(context).pop();
@@ -111,6 +129,30 @@ class _InSessionScreenState extends ConsumerState<InSessionScreen> with WidgetsB
                   ),
                 ],
               ),
+              const SizedBox(height: 16),
+              // Block Apps button
+              ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => AppBlockingScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.block, size: 18, color: Colors.white),
+                label: const Text(
+                  'Block Apps',
+                  style: TextStyle(color: Colors.white, fontSize: 14),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF6366f1),
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+              ),
               if (session.distracted)
                 const Padding(
                   padding: EdgeInsets.only(top: 24),
@@ -147,6 +189,7 @@ class _SessionSummaryModalState extends ConsumerState<SessionSummaryModal> {
         'startTime': session.startTime,
         'endTime': session.endTime ?? DateTime.now(),
         'duration': duration,
+        'sessionName': session.sessionName,
         'tag': session.tag,
         'mood': _mood,
         'notes': _notesController.text.trim(),
@@ -305,3 +348,116 @@ class _SessionSummaryModalState extends ConsumerState<SessionSummaryModal> {
     );
   }
 } 
+
+// Minimal summary dialog used after a pomodoro timer completes.
+class SimpleSessionSummaryDialog extends ConsumerStatefulWidget {
+  const SimpleSessionSummaryDialog({Key? key}) : super(key: key);
+
+  @override
+  ConsumerState<SimpleSessionSummaryDialog> createState() => _SimpleSessionSummaryDialogState();
+}
+
+class _SimpleSessionSummaryDialogState extends ConsumerState<SimpleSessionSummaryDialog> {
+  bool _saving = false;
+  String? _error;
+
+  Future<void> _done() async {
+    setState(() { _saving = true; _error = null; });
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw Exception('Not signed in');
+      final session = ref.read(sessionProvider);
+      if (session == null) throw Exception('No session');
+      final duration = ((session.endTime ?? DateTime.now()).difference(session.startTime ?? DateTime.now()).inSeconds / 60).round();
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('sessions').add({
+        'startTime': session.startTime,
+        'endTime': session.endTime ?? DateTime.now(),
+        'duration': duration,
+        'sessionName': session.sessionName,
+        'tag': session.tag,
+        'mood': 'auto',
+        'notes': '',
+        'distracted': session.distracted,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      // light-weight focus score update (best-effort)
+      try {
+        final snap = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('sessions')
+            .orderBy('endTime', descending: true)
+            .limit(10)
+            .get();
+        final all = snap.docs.map((d) => d.data()).toList();
+        int usable = 0; double total = 0.0;
+        for (final s in all) {
+          final dur = (s['duration'] ?? 0) as num;
+          final distracted = s['distracted'] == true;
+          if (dur >= 2 && !distracted) {
+            usable++; total += dur.toDouble();
+          }
+        }
+        final focusScore = usable > 0 ? (total / usable) : 0.0;
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({'focusScore': double.parse(focusScore.toStringAsFixed(2))}, SetOptions(merge: true));
+      } catch (_) {}
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      setState(() { _error = e.toString(); });
+    } finally {
+      if (mounted) setState(() { _saving = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final session = ref.watch(sessionProvider);
+    final name = session?.tag ?? 'Session';
+    final durationMinutes = session != null ? (((session.endTime ?? DateTime.now()).difference(session.startTime ?? DateTime.now()).inSeconds) / 60).round() : 0;
+    final completedAt = session?.endTime ?? DateTime.now();
+    final focusScore = session != null ? (session.distracted ? 0.0 : (durationMinutes.toDouble())) : 0.0;
+
+    return Dialog(
+      backgroundColor: Colors.black87,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(18.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(name, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            Row(children: [
+              const Icon(Icons.schedule, color: Colors.white54, size: 18),
+              const SizedBox(width: 8),
+              Text('$durationMinutes minutes', style: const TextStyle(color: Colors.white70)),
+            ]),
+            const SizedBox(height: 8),
+            Row(children: [
+              const Icon(Icons.bolt, color: Color(0xFF1E88E5), size: 18),
+              const SizedBox(width: 8),
+              Text('Focus score: ${focusScore.toStringAsFixed(1)}', style: const TextStyle(color: Colors.white70)),
+            ]),
+            const SizedBox(height: 8),
+            Row(children: [
+              const Icon(Icons.access_time, color: Colors.white54, size: 18),
+              const SizedBox(width: 8),
+              Text('Completed at ${TimeOfDay.fromDateTime(completedAt).format(context)}', style: const TextStyle(color: Colors.white70)),
+            ]),
+            if (_error != null) Padding(padding: const EdgeInsets.only(top:8.0), child: Text(_error!, style: const TextStyle(color: Colors.redAccent))),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _saving ? null : _done,
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1E88E5)),
+                child: _saving ? const SizedBox(height:16,width:16,child:CircularProgressIndicator(color:Colors.white,strokeWidth:2)) : const Text('Done', style: TextStyle(color: Colors.white)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

@@ -5,7 +5,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'advanced_settings_screen.dart';
 import 'dart:convert';
 
 // REPLACE this with your Formspree form endpoint
@@ -36,11 +35,6 @@ class SettingsScreen extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          ListTile(
-            leading: const Icon(Icons.settings, color: Colors.white70),
-            title: const Text('Additional settings', style: TextStyle(color: Colors.white)),
-            onTap: () => GoRouter.of(context).push('/advanced-settings'),
-          ),
           ListTile(
             leading: const Icon(Icons.feedback, color: Colors.white70),
             title: const Text('Send feedback', style: TextStyle(color: Colors.white)),
@@ -134,4 +128,4 @@ class SettingsScreen extends ConsumerWidget {
 
 final _formulaProvider = StateProvider<String>((ref) => 'weighted');
 final _lookbackProvider = StateProvider<int>((ref) => 5);
-final _stretchProvider = StateProvider<String>((ref) => 'adaptive'); 
+final _stretchProvider = StateProvider<String>((ref) => 'adaptive');

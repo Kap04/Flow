@@ -17,14 +17,15 @@ import 'app_drawer.dart';
 import 'dnd_helper.dart';
 import 'package:flutter/services.dart';
 import 'timer_notification_manager.dart';
+import 'session_summary_dialog.dart';
 // removed unused import: notification_service.dart
 
 const List<String> kPredefinedTags = [
+  'Unset',
   'Study',
   'Work',
-  'Design',
   'Reading',
-  'Meditation',
+  'Rest',
   'Other',
 ];
 
@@ -41,7 +42,6 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _distracted = false;
-  int _hours = 0;
   int _minutes = 25;
   String _selectedTag = kPredefinedTags[0];
   String? _customTag; // null means no custom tag active
@@ -62,33 +62,159 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   DateTime? _sessionStartTime;
   Timer? _abortTimer;
   int? _lastStretch;
-  late FixedExtentScrollController _hoursController;
   late FixedExtentScrollController _minutesController;
   bool _programmaticDialSet = false;
   bool _stretchAppliedOnce = false;
   bool _userManuallyChangedDials = false;
-  int? _preCountUpHours;
   int? _preCountUpMinutes;
   final GlobalKey<TimerWidgetState> _timerKey = GlobalKey<TimerWidgetState>();
   TimerNotificationManager? _notifManager;
+  
+  // Predefined minute values
+  static const List<int> _availableMinutes = [
+    15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120
+  ];
+  
+  int get _selectedMinutesIndex => _availableMinutes.indexOf(_minutes).clamp(0, _availableMinutes.length - 1);
 
   @override
   void initState() {
     super.initState();
     _countDownController = CountDownController();
-    _hoursController = FixedExtentScrollController(initialItem: _hours);
-    _minutesController = FixedExtentScrollController(initialItem: _minutes);
+    _minutesController = FixedExtentScrollController(initialItem: _selectedMinutesIndex);
     _notifManager = TimerNotificationManager();
-    _loadPrefs();
+    // Defer prefs and DND checks until after first frame to avoid blocking the
+    // main thread during app startup which can cause skipped frames on cold
+    // launch (especially on emulators).
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadPrefs());
   }
 
-  @override
+  Future<void> _showEndSessionPreview() async {
+    // Compute current duration without stopping the timer
+    int duration = 0;
+    final int planned = _minutes;
+    if (_focusMode == 0) {
+      if (_sessionStart != null) {
+        duration = DateTime.now().difference(_sessionStart!).inSeconds ~/ 60;
+        if (duration < 0) duration = 0;
+        if (planned > 0 && duration > planned) duration = planned;
+      }
+    } else {
+      duration = (_countUpSeconds ~/ 60);
+    }
+
+    final sessionName = _sessionName.isNotEmpty ? _sessionName : 'Untitled';
+    final tag = _customTag ?? _selectedTag;
+    final distracted = _distracted;
+
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF121212),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const SizedBox(width: 40),
+                  const Expanded(
+                    child: Text(
+                      'End Session?',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: () => Navigator.of(ctx).pop(null),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Session name',
+                    style: TextStyle(color: Colors.white70, fontSize: 14),
+                  ),
+                  Flexible(
+                    child: Text(
+                      sessionName,
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                const Text('Duration', style: TextStyle(color: Colors.white54)),
+                Text('$duration min', style: const TextStyle(color: Colors.white)),
+              ]),
+              const SizedBox(height: 8),
+              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                const Text('Planned', style: TextStyle(color: Colors.white54)),
+                Text('$planned min', style: const TextStyle(color: Colors.white)),
+              ]),
+              const SizedBox(height: 16),
+              Row(children: [
+                Expanded(
+                  child: TextButton(
+                    style: TextButton.styleFrom(
+                      backgroundColor: Colors.transparent,
+                      side: const BorderSide(color: Colors.white24),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                    ),
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    child: const Text('Back to session', style: TextStyle(color: Colors.white)),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFF5C5C),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                    ),
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    child: const Text('End Session', style: TextStyle(color: Colors.white)),
+                  ),
+                ),
+              ]),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (result == true) {
+      // User chose to end — call existing stop logic
+      _stopSession();
+    }
+    // if null or false, just return and let timer continue
+  }
+
   @override
   void dispose() {
     _countUpTimer?.cancel();
     _audioPlayer.dispose();
     _abortTimer?.cancel();
-    _hoursController.dispose();
     _minutesController.dispose();
     super.dispose();
   }
@@ -107,6 +233,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       // ignore: avoid_print
       print('home_screen: failed to query DND access: $e');
     }
+    // Ensure DND is off by default
+    setState(() => _dndEnabled = false);
   }
 
   void _setDialsFromStretch(int stretch, {bool force = false}) {
@@ -124,15 +252,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         // forced reapply should only occur when callers checked the manual flag
         // externally; do not clear it here to avoid overriding an explicit user change.
       }
+      
+      // Find the closest available minute value
+      int targetMinutes = stretch.clamp(15, 120);
+      int closestIndex = 0;
+      int smallestDiff = (_availableMinutes[0] - targetMinutes).abs();
+      
+      for (int i = 1; i < _availableMinutes.length; i++) {
+        int diff = (_availableMinutes[i] - targetMinutes).abs();
+        if (diff < smallestDiff) {
+          smallestDiff = diff;
+          closestIndex = i;
+        }
+      }
+      
       setState(() {
-        _hours = stretch ~/ 60;
-        _minutes = stretch % 60;
+        _minutes = _availableMinutes[closestIndex];
         _lastStretch = stretch;
       });
+      
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_programmaticDialSet) {
-          _hoursController.jumpToItem(_hours);
-          _minutesController.jumpToItem(_minutes);
+          _minutesController.jumpToItem(closestIndex);
         }
       });
       _stretchAppliedOnce = true;
@@ -159,9 +300,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           }
         });
       }
-      // Start notification for individual timer
+      // Start notification for pomodoro timer
       final totalSeconds = (_focusMode == 0)
-          ? (_hours * 60 + _minutes) * 60
+          ? _minutes * 60
           : 0;
       _notifManager?.start(
         totalSeconds,
@@ -179,25 +320,56 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     });
   }
 
+  Future<void> _playCompletionSound() async {
+    try {
+      await _audioPlayer.stop();
+      await _audioPlayer.play(AssetSource('sound/timer_complete.mp3'));
+    } catch (e) {
+      print('Error playing completion sound: $e');
+    }
+  }
+
   void _onCountdownComplete() {
-    _saveSession(
-      durationMinutes: _hours * 60 + _minutes,
-      plannedMinutes: _hours * 60 + _minutes,
-    );
+    // Play completion sound
+    _playCompletionSound();
+    
+    // Capture session data before resetting state
+    final sessionName = _sessionName.isNotEmpty ? _sessionName : 'Untitled';
+    final tag = _customTag ?? _selectedTag;
+    final durationMinutes = _minutes;
+    final distracted = _distracted;
+    final completedAt = DateTime.now();
+    
+    // Stop ambient playback and notifications
+    _stopAmbientPlayback();
+    _abortTimer?.cancel();
+    _notifManager?.stop();
+    
+    // Reset state
     setState(() {
       _isCountingDown = false;
       _isPaused = false;
       _sessionStart = null;
     });
-    // stop ambient playback when session ends
-    _stopAmbientPlayback();
-    _abortTimer?.cancel();
-    _notifManager?.stop();
+    
+    // Show summary dialog (which handles saving)
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => SessionSummaryDialog(
+        sessionName: sessionName,
+        tag: tag,
+        durationMinutes: durationMinutes,
+        distracted: distracted,
+        completedAt: completedAt,
+      ),
+    );
   }
 
   void _stopSession() {
+    // Calculate duration
     int duration = 0;
-    int planned = _hours * 60 + _minutes;
+    int planned = _minutes;
     if (_focusMode == 0) {
       if (_sessionStart != null) {
         duration = DateTime.now().difference(_sessionStart!).inSeconds ~/ 60;
@@ -207,7 +379,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     } else {
       duration = (_countUpSeconds ~/ 60);
     }
-    _saveSession(durationMinutes: duration, plannedMinutes: planned);
+    
+    // Capture session data before resetting state
+    final sessionName = _sessionName.isNotEmpty ? _sessionName : 'Untitled';
+    final tag = _customTag ?? _selectedTag;
+    final distracted = _distracted;
+    final completedAt = DateTime.now();
+    
+    // Stop ambient playback and notifications
+    _stopAmbientPlayback();
+    _abortTimer?.cancel();
+    _notifManager?.stop();
+    
+    // Reset state
     setState(() {
       _isCountingDown = false;
       _isPaused = false;
@@ -215,9 +399,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       _countUpTimer?.cancel();
       _countUpSeconds = 0;
     });
-    _stopAmbientPlayback();
-    _abortTimer?.cancel();
-    _notifManager?.stop();
+    
+    // Show summary dialog (which handles saving)
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => SessionSummaryDialog(
+        sessionName: sessionName,
+        tag: tag,
+        durationMinutes: duration,
+        distracted: distracted,
+        completedAt: completedAt,
+      ),
+    );
   }
 
   void _abortSession() async {
@@ -549,10 +743,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final totalSeconds = _hours * 3600 + _minutes * 60;
+    final totalSeconds = _minutes * 60;
     final canStart =
         _sessionName.trim().isNotEmpty &&
-        (_focusMode == 1 || (_hours != 0 || _minutes != 0));
+        (_focusMode == 1 || _minutes != 0);
     final focusScoreAsync = ref.watch(focusScoreProvider);
     final stretchAsync = ref.watch(stretchSessionProvider);
     // Set dials reactively to stretch value. If we're currently showing the
@@ -660,21 +854,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               // current dials still match the snapshot, the user
                               // didn't change them while on count-up.
                               final bool unchangedSinceSnapshot =
-                                  _preCountUpHours == null ||
-                                      (_hours == _preCountUpHours && _minutes == _preCountUpMinutes);
+                                  _preCountUpMinutes == null ||
+                                      (_minutes == _preCountUpMinutes);
                               if (!_userManuallyChangedDials && unchangedSinceSnapshot) {
                                 final av = ref.read(stretchSessionProvider);
                                 if (av is AsyncData<int>) {
                                   _setDialsFromStretch(av.value, force: true);
                                   // clear snapshot after applying
-                                  _preCountUpHours = null;
                                   _preCountUpMinutes = null;
                                 } else {
                                   try {
                                     final stretch = await ref.read(stretchSessionProvider.future);
                                     _setDialsFromStretch(stretch, force: true);
                                     // clear snapshot after applying
-                                    _preCountUpHours = null;
                                     _preCountUpMinutes = null;
                                   } catch (_) {
                                     // ignore failures to fetch stretch
@@ -697,7 +889,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               // snapshot current dials so we can tell later if the
                               // user changed them while on count-up. We treat the
                               // snapshot itself as not a manual change.
-                              _preCountUpHours = _hours;
                               _preCountUpMinutes = _minutes;
                               _userManuallyChangedDials = false;
                               setState(() => _focusMode = 1);
@@ -795,21 +986,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             ),
                           ),
                         if (!_isCountingDown && _focusMode == 0)
-                          // Timer Picker
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.center,
+                          // Minutes Picker
+                          Column(
                             children: [
+                              const SizedBox(height: 30), // Add top spacing to push content down
                               SizedBox(
-                                width: 60,
-                                height: 120,
+                                width: 120,
+                                height: 140, // Increased height to accommodate spacing
                                 child: ListWheelScrollView.useDelegate(
-                                  itemExtent: 40,
+                                  itemExtent: 45,
                                   diameterRatio: 1.2,
                                   physics: const FixedExtentScrollPhysics(),
                                   onSelectedItemChanged: (v) {
                                     setState(() {
-                                      _hours = v;
+                                      _minutes = _availableMinutes[v];
                                       _programmaticDialSet = false;
                                       _stretchAppliedOnce = true;
                                       _userManuallyChangedDials = true;
@@ -817,70 +1007,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   },
                                   childDelegate: ListWheelChildBuilderDelegate(
                                     builder: (ctx, i) {
-                                      final diff = (i - _hours).abs();
+                                      final diff = (i - _selectedMinutesIndex).abs();
                                       double opacity = 1.0;
                                       if (diff == 1)
-                                        opacity = 0.2;
+                                        opacity = 0.25;
                                       else if (diff > 1)
-                                        opacity = 0.08;
+                                        opacity = 0.1;
                                       return Opacity(
                                         opacity: opacity,
                                         child: Text(
-                                          '$i',
+                                          '${_availableMinutes[i]}',
                                           style: const TextStyle(
-                                            fontSize: 32,
+                                            fontSize: 40,
                                             color: Colors.white,
+                                            fontWeight: FontWeight.w600,
                                           ),
                                         ),
                                       );
                                     },
-                                    childCount: 12, // 0-11 hours
-                                  ),
-                                  controller: _hoursController,
-                                ),
-                              ),
-                              const Text(
-                                ':',
-                                style: TextStyle(
-                                  fontSize: 32,
-                                  color: Colors.white70,
-                                ),
-                              ),
-                              SizedBox(
-                                width: 60,
-                                height: 120,
-                                child: ListWheelScrollView.useDelegate(
-                                  itemExtent: 40,
-                                  diameterRatio: 1.2,
-                                  physics: const FixedExtentScrollPhysics(),
-                                  onSelectedItemChanged: (v) {
-                                    setState(() {
-                                      _minutes = v;
-                                      _programmaticDialSet = false;
-                                      _stretchAppliedOnce = true;
-                                      _userManuallyChangedDials = true;
-                                    });
-                                  },
-                                  childDelegate: ListWheelChildBuilderDelegate(
-                                    builder: (ctx, i) {
-                                      final diff = (i - _minutes).abs();
-                                      double opacity = 1.0;
-                                      if (diff == 1)
-                                        opacity = 0.2;
-                                      else if (diff > 1)
-                                        opacity = 0.08;
-                                      return Opacity(
-                                        opacity: opacity,
-                                        child: Text(
-                                          i.toString().padLeft(2, '0'),
-                                          style: const TextStyle(
-                                            fontSize: 32,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                    childCount: 60,
+                                    childCount: _availableMinutes.length,
                                   ),
                                   controller: _minutesController,
                                 ),
@@ -897,7 +1042,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           TimerWidget(
                             key: _timerKey,
                             durationMinutes: _focusMode == 0
-                                ? (_hours * 60 + _minutes)
+                                ? _minutes
                                 : 0,
                             mode: _focusMode == 0
                                 ? TimerMode.countdown
@@ -905,21 +1050,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             onComplete: _focusMode == 0
                                 ? _onCountdownComplete
                                 : null,
-                            onStop: _stopSession,
-                            onAbort:
-                                _sessionStartTime != null &&
-                                    DateTime.now()
-                                            .difference(_sessionStartTime!)
-                                            .inSeconds <
-                                        60
-                                ? _abortSession
-                                : null,
-                            showAbortButton:
-                                _sessionStartTime != null &&
-                                DateTime.now()
-                                        .difference(_sessionStartTime!)
-                                        .inSeconds <
-                                    60,
                             showAmbientSound: true,
                             sessionName: _sessionName,
                             tag: _customTag ?? _selectedTag,
@@ -1079,12 +1209,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     controller: TextEditingController(text: _sessionName),
                     decoration: InputDecoration(
                       hintText: 'Session name',
-                      hintStyle: const TextStyle(color: Color(0xFFE0E0E0)),
-                      filled: true,
-                      fillColor: Colors.grey[900],
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide.none,
+                      hintStyle: const TextStyle(color: Color(0xFFE0E0E0), fontStyle: FontStyle.italic),
+                      border: UnderlineInputBorder(
+                        borderSide: BorderSide(color: Colors.grey),
                       ),
                       contentPadding: const EdgeInsets.symmetric(
                         vertical: 14,
@@ -1098,11 +1225,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text(
-                      'Ambient Sound',
-                      style: TextStyle(color: Color(0xFFE0E0E0), fontSize: 16),
-                    ),
-                    const SizedBox(width: 12),
+                    const Icon(Icons.music_note, color: Colors.white, size: 20),
+                    const SizedBox(width: 8),
                     Switch(
                       value: _ambientSound,
                       onChanged: (v) => _toggleAmbient(v),
@@ -1118,11 +1242,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text(
-                      'Do Not Disturb',
-                      style: TextStyle(color: Colors.white, fontSize: 16),
-                    ),
-                    const SizedBox(width: 12),
+                    const Icon(Icons.do_not_disturb_on, color: Colors.white, size: 20),
+                    const SizedBox(width: 8),
                     Switch(
                       value: _dndEnabled,
                       onChanged: (v) => _toggleDnd(v),
@@ -1136,79 +1257,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
                 const SizedBox(height: 24),
 
-                // Control buttons at the very bottom for individual timer
+                // End Session button
                 Padding(
                   padding: const EdgeInsets.only(bottom: 20),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      // Abort button
-                      if (_sessionStartTime != null &&
-                          DateTime.now()
-                                  .difference(_sessionStartTime!)
-                                  .inSeconds <
-                              60)
-                        GestureDetector(
-                          onTap: _abortSession,
-                          child: Container(
-                            width: 60,
-                            height: 60,
-                            decoration: BoxDecoration(
-                              color: Colors.red,
-                              borderRadius: BorderRadius.circular(30),
-                            ),
-                            child: const Icon(
-                              Icons.close,
-                              color: Colors.white,
-                              size: 30,
-                            ),
+                  child: Center(
+                    child: GestureDetector(
+                      onTap: _showEndSessionPreview,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: const Color(0x14FF4B4B),
+                          border: Border.all(
+                            color: const Color(0x66FF4B4B),
+                            width: 1,
                           ),
+                          borderRadius: BorderRadius.circular(9999),
                         ),
-
-                      // Pause/Resume
-                      GestureDetector(
-                        onTap: () {
-                          // Call the TimerWidget's togglePause method
-                          _timerKey.currentState?.togglePause();
-                        },
-                        child: Container(
-                          width: 60,
-                          height: 60,
-                          decoration: BoxDecoration(
-                            gradient: kAccentGradient,
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                          child: Icon(
-                            _isPaused ? Icons.play_arrow : Icons.pause,
-                            color: Colors.white,
-                            size: 30,
+                        child: const Text(
+                            'End Session',
+                          style: TextStyle(
+                            color: Color(0xFFFF5C5C),
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       ),
-
-                      // Stop
-                      GestureDetector(
-                        onTap: _stopSession,
-                        child: Container(
-                          width: 60,
-                          height: 60,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                          child: Center(
-                            child: Container(
-                              width: 20,
-                              height: 20,
-                              decoration: BoxDecoration(
-                                color: Colors.black,
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ],
@@ -1223,12 +1297,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     onChanged: (v) => setState(() => _sessionName = v),
                     decoration: InputDecoration(
                       hintText: 'session name',
-                      hintStyle: const TextStyle(color: Color(0xFFE0E0E0)),
-                      filled: true,
-                      fillColor: Colors.grey[900],
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide.none,
+                      hintStyle: const TextStyle(color: Color(0xFF666666), fontStyle: FontStyle.italic),
+                      border: UnderlineInputBorder(
+                        borderSide: BorderSide(color: Colors.grey),
                       ),
                       contentPadding: const EdgeInsets.symmetric(
                         vertical: 14,
@@ -1237,26 +1308,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
                     style: const TextStyle(color: Colors.white, fontSize: 16),
                   ),
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text(
-                      'Ambient Sound',
-                      style: TextStyle(color: Color(0xFFE0E0E0), fontSize: 16),
-                    ),
-                    const SizedBox(width: 12),
-                    Switch(
-                      value: _ambientSound,
-                      onChanged: (v) => _toggleAmbient(v),
-                      activeColor: Colors.grey,
-                      trackOutlineColor: MaterialStateProperty.all(
-                        Colors.transparent,
-                      ),
-                      trackColor: MaterialStateProperty.all(Colors.white24),
-                    ),
-                  ],
                 ),
                 const SizedBox(height: 24),
                 SizedBox(

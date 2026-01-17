@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'session_provider.dart';
+import 'app_blocking_screen.dart';
 
 class AppDrawer extends ConsumerWidget {
   const AppDrawer({Key? key}) : super(key: key);
@@ -73,18 +74,38 @@ class AppDrawer extends ConsumerWidget {
           ),
           ListTile(
             leading: const Icon(Icons.timer, color: Colors.lightBlueAccent),
-            title: const Text('Individual Timer', style: TextStyle(color: Colors.white)),
+            title: const Text('Pomodoro', style: TextStyle(color: Colors.white)),
             onTap: () {
               Navigator.pop(context);
               GoRouter.of(context).go('/home');
             },
           ),
           ListTile(
-            leading: const Icon(Icons.directions_run, color: Colors.amber),
-            title: const Text('Sprints', style: TextStyle(color: Colors.white)),
+            leading: const Icon(Icons.view_module, color: Colors.amber),
+            title: const Text('Time Blocks', style: TextStyle(color: Colors.white)),
             onTap: () {
               Navigator.pop(context);
               GoRouter.of(context).push('/sprints');
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.schedule, color: Colors.blue),
+            title: const Text('Flow Triggers', style: TextStyle(color: Colors.white)),
+            onTap: () {
+              Navigator.pop(context);
+              GoRouter.of(context).push('/planner');
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.block, color: Colors.red),
+            title: const Text('Block Apps', style: TextStyle(color: Colors.white)),
+            onTap: () {
+              Navigator.pop(context);
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => AppBlockingScreen(),
+                ),
+              );
             },
           ),
           ListTile(

@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +11,7 @@ import 'package:go_router/go_router.dart';
 import 'app_drawer.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:fl_chart/fl_chart.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -32,11 +34,27 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   String? _selectedDayInfo;
   Offset? _lastTapPosition;
   OverlayEntry? _tooltipEntry;
+  
+  // Tag breakdown pie chart state
+  Map<String, int> _tagBreakdown = {};
+  bool _showLastWeek = true; // true = last week, false = last month
+  bool _loadingTags = true;
+  
+  // Focus trend line chart state
+  List<FlSpot> _focusTrendData = [];
+  double _avgFocusScore = 0;
+  double _previousAvgFocusScore = 0;
+  int? _selectedSpotIndex;
+  bool _loadingTrend = true;
+  DateTime? _selectedDate;
+  double? _selectedFocusScore;
 
   @override
   void initState() {
     super.initState();
-    _loadProfile();
+    // Defer heavy profile loading until after the first frame to avoid blocking
+    // UI startup work and reduce skipped frames at app launch.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadProfile());
   }
 
   @override
@@ -59,6 +77,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
 
     // Load sessions for last 90 days and aggregate
     final since = DateTime.now().subtract(const Duration(days: 90));
+    
+    final Map<DateTime, int> agg = {};
+    
+    // Load from regular sessions (Pomodoro timer)
     final snap = await FirebaseFirestore.instance
         .collection('users')
         .doc(user.uid)
@@ -66,7 +88,6 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(since))
         .get();
 
-    final Map<DateTime, int> agg = {};
     for (final d in snap.docs) {
       final data = d.data();
       final ts = (data['createdAt'] as Timestamp?)?.toDate() ?? (data['startTime'] as Timestamp?)?.toDate();
@@ -75,11 +96,197 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       final day = DateTime(ts.year, ts.month, ts.day);
       agg[day] = (agg[day] ?? 0) + dur;
     }
+    
+    // Load from sprint_sessions (Time Blocks)
+    final sprintSnap = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('sprint_sessions')
+        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(since))
+        .get();
+    
+    print('📅 Heat Map: Found ${sprintSnap.docs.length} sprint sessions');
+
+    for (final d in sprintSnap.docs) {
+      final data = d.data();
+      final ts = (data['timestamp'] as Timestamp?)?.toDate() ?? (data['createdAt'] as Timestamp?)?.toDate();
+      final dur = (data['actualMinutes'] as num?)?.toInt() ?? 0;
+      final completed = data['completed'] ?? false;
+      print('  Session: date=$ts, duration=$dur, completed=$completed');
+      if (ts == null || !completed) continue;
+      final day = DateTime(ts.year, ts.month, ts.day);
+      agg[day] = (agg[day] ?? 0) + dur;
+    }
 
     setState(() {
       _dailyMinutes = agg;
       _streak = _computeStreak(agg);
       _loading = false;
+    });
+    
+    // Load tag breakdown and focus trend
+    await _loadTagBreakdown();
+    await _loadFocusTrend();
+  }
+  
+  Future<void> _loadFocusTrend() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    
+    setState(() => _loadingTrend = true);
+    
+    // Get last 30 days of data
+    final now = DateTime.now();
+    final since = now.subtract(const Duration(days: 30));
+    
+    final snap = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('sessions')
+        .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(since))
+        .orderBy('createdAt')
+        .get();
+    
+    final sprintSnap = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('sprint_sessions')
+        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(since))
+        .orderBy('timestamp')
+        .get();
+    
+    // Combine and sort all sessions by date
+    final Map<DateTime, List<int>> dailySessions = {};
+    
+    for (final d in snap.docs) {
+      final data = d.data();
+      final ts = (data['createdAt'] as Timestamp?)?.toDate();
+      final dur = (data['duration'] as num?)?.toInt() ?? 0;
+      if (ts == null || dur == 0) continue;
+      final day = DateTime(ts.year, ts.month, ts.day);
+      dailySessions.putIfAbsent(day, () => []).add(dur);
+    }
+    
+    for (final d in sprintSnap.docs) {
+      final data = d.data();
+      final ts = (data['timestamp'] as Timestamp?)?.toDate();
+      final dur = (data['actualMinutes'] as num?)?.toInt() ?? 0;
+      final completed = data['completed'] ?? false;
+      if (ts == null || dur == 0 || !completed) continue;
+      final day = DateTime(ts.year, ts.month, ts.day);
+      dailySessions.putIfAbsent(day, () => []).add(dur);
+    }
+    
+    // Create spots for all 30 days (fill missing days with 0)
+    final List<FlSpot> spots = [];
+    final Map<DateTime, double> dailyAverages = {};
+    
+    for (final day in dailySessions.keys) {
+      final sessions = dailySessions[day]!;
+      final avgDuration = sessions.reduce((a, b) => a + b) / sessions.length;
+      dailyAverages[day] = avgDuration;
+    }
+    
+    // Create spots for all 30 days
+    for (int i = 0; i < 30; i++) {
+      final day = DateTime.now().subtract(Duration(days: 29 - i));
+      final dayKey = DateTime(day.year, day.month, day.day);
+      final avgDuration = dailyAverages[dayKey] ?? 0;
+      spots.add(FlSpot(i.toDouble(), avgDuration));
+    }
+    
+    // Calculate overall average and previous period average for comparison
+    final allDaysWithData = dailySessions.keys.toList()..sort();
+    final recentDays = allDaysWithData.length >= 7 ? allDaysWithData.sublist(allDaysWithData.length - 7) : allDaysWithData;
+    final previousDays = allDaysWithData.length >= 14 ? allDaysWithData.sublist(allDaysWithData.length - 14, allDaysWithData.length - 7) : [];
+    
+    double recentAvg = 0;
+    if (recentDays.isNotEmpty) {
+      final recentSessions = recentDays.expand((day) => dailySessions[day]!).toList();
+      recentAvg = recentSessions.reduce((a, b) => a + b) / recentSessions.length;
+    }
+    
+    double previousAvg = 0;
+    if (previousDays.isNotEmpty) {
+      final previousSessions = previousDays.expand((day) => dailySessions[day]!).toList();
+      previousAvg = previousSessions.reduce((a, b) => a + b) / previousSessions.length;
+    }
+    
+    setState(() {
+      _focusTrendData = spots;
+      _avgFocusScore = recentAvg;
+      _previousAvgFocusScore = previousAvg;
+      _loadingTrend = false;
+    });
+  }
+  
+  Future<void> _loadTagBreakdown() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    
+    setState(() => _loadingTags = true);
+    
+    final days = _showLastWeek ? 7 : 30;
+    final since = DateTime.now().subtract(Duration(days: days));
+    
+    final Map<String, int> breakdown = {};
+    
+    // Load from regular sessions (Pomodoro timer)
+    final sessionsSnap = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('sessions')
+        .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(since))
+        .get();
+    
+    print('📊 Tag Breakdown - Regular sessions: ${sessionsSnap.docs.length}');
+    
+    for (final d in sessionsSnap.docs) {
+      final data = d.data();
+      String tag = (data['tag'] as String?) ?? 'Unset';
+      if (tag.trim().isEmpty) tag = 'Unset';
+      
+      final duration = (data['duration'] as num?)?.toInt() ?? 0;
+      print('  Pomodoro: tag=$tag, duration=$duration');
+      if (duration > 0) {
+        breakdown[tag] = (breakdown[tag] ?? 0) + duration;
+      }
+    }
+    
+    // Load from sprint_sessions (Time Blocks)
+    final sprintSnap = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('sprint_sessions')
+        .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(since))
+        .get();
+    
+    print('📊 Tag Breakdown - Sprint sessions: ${sprintSnap.docs.length}');
+    
+    for (final d in sprintSnap.docs) {
+      final data = d.data();
+      String tag = (data['tag'] as String?) ?? 'Unset';
+      if (tag.trim().isEmpty) tag = 'Unset';
+      
+      final duration = (data['actualMinutes'] as num?)?.toInt() ?? 
+                      (data['duration'] as num?)?.toInt() ?? 0;
+      final completed = data['completed'] ?? false;
+      
+      print('  Sprint: tag=$tag, duration=$duration, completed=$completed, data=$data');
+      
+      if (duration > 0 && completed) {
+        breakdown[tag] = (breakdown[tag] ?? 0) + duration;
+        print('    ✅ Added to breakdown: $tag now has ${breakdown[tag]} minutes');
+      } else {
+        print('    ❌ Skipped: duration=$duration, completed=$completed');
+      }
+    }
+    
+    print('📊 Final breakdown: $breakdown');
+    
+    setState(() {
+      _tagBreakdown = breakdown;
+      _loadingTags = false;
     });
   }
 
@@ -624,6 +831,16 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
+                  const SizedBox(height: 32),
+                  
+                  // Tag Breakdown Pie Chart Section
+                  _buildTagBreakdownSection(),
+                  
+                  const SizedBox(height: 48),
+                  
+                  // Focus Trend Line Chart Section
+                  _buildFocusTrendSection(),
+                  
                   const SizedBox(height: 24),
                   SizedBox(
                     height: 48,
@@ -637,6 +854,425 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               ),
             ),
     );
+  }
+  
+  Widget _buildTagBreakdownSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Tag Breakdown',
+          style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 16),
+        
+        // Time period selector - segmented control style
+        Center(
+          child: Container(
+            height: 32,
+            decoration: BoxDecoration(
+              color: Colors.grey[900],
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildSegmentButton('Last Week', _showLastWeek),
+                _buildSegmentButton('Last Month', !_showLastWeek),
+              ],
+            ),
+          ),
+        ),
+        
+        const SizedBox(height: 24),
+        
+        // Pie chart
+        if (_loadingTags)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(40.0),
+              child: CircularProgressIndicator(color: Colors.white54),
+            ),
+          )
+        else if (_tagBreakdown.isEmpty)
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(40.0),
+              child: Column(
+                children: [
+                  Container(
+                    width: 200,
+                    height: 200,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.grey[800]!, width: 40),
+                    ),
+                    child: Center(
+                      child: Text(
+                        'No sessions',
+                        style: TextStyle(color: Colors.grey[600], fontSize: 16),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No sessions in ${_showLastWeek ? 'last week' : 'last month'}',
+                    style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          Column(
+            children: [
+              SizedBox(
+                height: 220,
+                child: PieChart(
+                  PieChartData(
+                    sectionsSpace: 2,
+                    centerSpaceRadius: 60,
+                    sections: _buildPieChartSections(),
+                    borderData: FlBorderData(show: false),
+                    pieTouchData: PieTouchData(enabled: false),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              
+              // Horizontal legend
+              Wrap(
+                spacing: 16,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children: _buildLegendItems(),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+  
+  Widget _buildSegmentButton(String label, bool isSelected) {
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _showLastWeek = label == 'Last Week';
+        });
+        _loadTagBreakdown();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.grey[800] : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.grey[500],
+            fontSize: 13,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+          ),
+        ),
+      ),
+    );
+  }
+  
+  List<PieChartSectionData> _buildPieChartSections() {
+    final colors = _getTagColors();
+    final total = _tagBreakdown.values.fold(0, (sum, val) => sum + val);
+    if (total == 0) return [];
+    
+    final sortedEntries = _tagBreakdown.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    
+    return sortedEntries.map((entry) {
+      final percentage = (entry.value / total * 100);
+      return PieChartSectionData(
+        color: colors[entry.key] ?? Colors.grey,
+        value: entry.value.toDouble(),
+        title: percentage >= 5 ? '${percentage.toStringAsFixed(0)}%' : '',
+        radius: 50,
+        titleStyle: const TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
+        ),
+      );
+    }).toList();
+  }
+  
+  List<Widget> _buildLegendItems() {
+    final colors = _getTagColors();
+    final sortedEntries = _tagBreakdown.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    
+    return sortedEntries.map((entry) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              color: colors[entry.key] ?? Colors.grey,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            '${entry.key} (${entry.value}m)',
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+        ],
+      );
+    }).toList();
+  }
+  
+  Map<String, Color> _getTagColors() {
+    // Cool colors palette for tags
+    final coolColors = [
+      const Color(0xFF6A5ACD), // Slate blue
+      const Color(0xFF4169E1), // Royal blue
+      const Color(0xFF00CED1), // Dark turquoise
+      const Color(0xFF20B2AA), // Light sea green
+      const Color(0xFF9370DB), // Medium purple
+      const Color(0xFF5F9EA0), // Cadet blue
+      const Color(0xFF87CEEB), // Sky blue
+      const Color(0xFF48D1CC), // Medium turquoise
+      const Color(0xFF7B68EE), // Medium slate blue
+      const Color(0xFF00BFFF), // Deep sky blue
+    ];
+    
+    final Map<String, Color> colorMap = {};
+    final tags = _tagBreakdown.keys.toList();
+    
+    for (int i = 0; i < tags.length; i++) {
+      colorMap[tags[i]] = coolColors[i % coolColors.length];
+    }
+    
+    return colorMap;
+  }
+  
+  // Focus Trend Line Chart Section
+  Widget _buildFocusTrendSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Focus Trend',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (_loadingTrend)
+          const Center(child: CircularProgressIndicator(color: Colors.white70))
+        else if (_focusTrendData.isEmpty)
+          Container(
+            height: 200,
+            alignment: Alignment.center,
+            child: const Text(
+              'No focus data available',
+              style: TextStyle(color: Colors.white54, fontSize: 14),
+            ),
+          )
+        else ...[
+          // Info header - shows selected data or average
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: _selectedDate != null && _selectedFocusScore != null
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _formatDate(_selectedDate!),
+                        style: const TextStyle(color: Colors.white70, fontSize: 12),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${_selectedFocusScore!.toStringAsFixed(0)}m focus',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      const Text(
+                        'Average Focus',
+                        style: TextStyle(color: Colors.white70, fontSize: 14),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        '${_avgFocusScore.toStringAsFixed(0)}m',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      _buildTrendArrow(),
+                    ],
+                  ),
+          ),
+          const SizedBox(height: 24),
+          // Line Chart
+          Container(
+            height: 200,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: LineChart(
+              LineChartData(
+                gridData: FlGridData(show: false),
+                titlesData: FlTitlesData(
+                  show: true,
+                  rightTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  topTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  leftTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 30,
+                      getTitlesWidget: (value, meta) {
+                        // Only show months at the ends
+                        if (value == 0) {
+                          final date = DateTime.now().subtract(const Duration(days: 29));
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Text(
+                              _formatMonthYear(date),
+                              style: const TextStyle(
+                                color: Colors.white54,
+                                fontSize: 11,
+                              ),
+                            ),
+                          );
+                        } else if (value == 29) {
+                          final date = DateTime.now();
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Text(
+                              _formatMonthYear(date),
+                              style: const TextStyle(
+                                color: Colors.white54,
+                                fontSize: 11,
+                              ),
+                            ),
+                          );
+                        }
+                        return const Text('');
+                      },
+                    ),
+                  ),
+                ),
+                borderData: FlBorderData(show: false),
+                minX: 0,
+                maxX: 29,
+                minY: 0,
+                maxY: _focusTrendData.map((e) => e.y).reduce((a, b) => a > b ? a : b) * 1.2,
+                lineTouchData: LineTouchData(
+                  enabled: true,
+                  touchTooltipData: LineTouchTooltipData(
+                    getTooltipItems: (_) => [],
+                  ),
+                  touchCallback: (event, response) {
+                    if (event is FlTapUpEvent && response != null && response.lineBarSpots != null && response.lineBarSpots!.isNotEmpty) {
+                      final spot = response.lineBarSpots!.first;
+                      final dayIndex = spot.x.toInt();
+                      // Snap to nearest 10-day interval (0, 10, 20)
+                      final snappedIndex = (dayIndex / 10).round() * 10;
+                      final clampedIndex = snappedIndex.clamp(0, 29);
+                      
+                      final date = DateTime.now().subtract(Duration(days: 29 - clampedIndex));
+                      final focusScore = _focusTrendData[clampedIndex].y;
+                      
+                      setState(() {
+                        _selectedSpotIndex = clampedIndex;
+                        _selectedDate = date;
+                        _selectedFocusScore = focusScore;
+                      });
+                    } else if (event is FlPanEndEvent || event is FlLongPressEnd) {
+                      setState(() {
+                        _selectedSpotIndex = null;
+                        _selectedDate = null;
+                        _selectedFocusScore = null;
+                      });
+                    }
+                  },
+                  handleBuiltInTouches: true,
+                ),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: _focusTrendData,
+                    isCurved: true,
+                    curveSmoothness: 0.35,
+                    color: const Color(0xFF4169E1),
+                    barWidth: 2,
+                    isStrokeCapRound: true,
+                    dotData: FlDotData(show: false),
+                    belowBarData: BarAreaData(
+                      show: true,
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          const Color(0xFF4169E1).withOpacity(0.2),
+                          const Color(0xFF4169E1).withOpacity(0.0),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+  
+  // Trend arrow based on leaderboard implementation
+  Widget _buildTrendArrow() {
+    final bool isPositive = _avgFocusScore >= _previousAvgFocusScore;
+    final Color arrowColor = isPositive ? const Color(0xFF4CAF50) : const Color(0xFFEF5350);
+    final IconData arrowIcon = isPositive ? Icons.arrow_upward : Icons.arrow_downward;
+    final double rotationAngle = isPositive ? math.pi / 4 : -math.pi / 4; // 45° or -45°
+    
+    return Transform.rotate(
+      angle: rotationAngle,
+      child: Icon(
+        arrowIcon,
+        color: arrowColor,
+        size: 18,
+      ),
+    );
+  }
+  
+  String _formatMonthYear(DateTime date) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[date.month - 1]} ${date.year}';
+  }
+  
+  String _formatDate(DateTime date) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 
   void _showTooltipAt(Offset? globalPos, String text) {

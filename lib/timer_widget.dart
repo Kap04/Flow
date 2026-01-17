@@ -29,6 +29,7 @@ class TimerWidget extends StatefulWidget {
   final bool showSessionName; // New parameter to control session name display
   final bool showAmbientSoundButton; // New parameter to control ambient sound button in controls
   final bool showControlButtons; // New parameter to control control buttons display
+  final bool isBreak; // indicate this session is a break/rest period
   final GlobalKey<TimerWidgetState>? timerKey; // Add key for external access
 
   const TimerWidget({
@@ -52,6 +53,7 @@ class TimerWidget extends StatefulWidget {
     this.showSessionName = true, // Default to true for backward compatibility
     this.showAmbientSoundButton = true, // Default to true for backward compatibility
     this.showControlButtons = true, // Default to true for backward compatibility
+    this.isBreak = false,
     this.timerKey, // Add key parameter
   });
 
@@ -70,10 +72,35 @@ class TimerWidgetState extends State<TimerWidget> {
   bool _showAddTimeTooltip = false;
   int _lastDuration = 0;
   String _lastSessionKey = ''; // Track session changes
-  bool _dndEnabledByApp = false; // track if app enabled DND
+  bool _dndEnabledByApp = false; // Ensure DND is off by default
 
   // Expose the controller for external control
   CountDownController get controller => _countDownController;
+
+  // Return the actual elapsed minutes for the current session
+  // For countdown mode, compute from the remaining time; for countup, use elapsed seconds.
+  int getActualMinutes() {
+    try {
+      if (widget.mode == TimerMode.countdown) {
+        final rem = _countDownController.getTime();
+        if (rem == null) return _lastDuration;
+        final parts = rem.split(':');
+        if (parts.length != 2) return _lastDuration;
+        final minutes = int.tryParse(parts[0]) ?? 0;
+        final seconds = int.tryParse(parts[1]) ?? 0;
+        final remainingSeconds = minutes * 60 + seconds;
+        final totalSeconds = _lastDuration * 60;
+        var elapsed = totalSeconds - remainingSeconds;
+        if (elapsed < 0) elapsed = 0;
+  // Use floor (whole minutes) so very-short sessions count as 0 minutes.
+  return (elapsed ~/ 60);
+      } else {
+        return ((_countUpSeconds + 59) ~/ 60);
+      }
+    } catch (_) {
+      return _lastDuration;
+    }
+  }
 
   // Public helper to start a new session with a different session name/tag/duration
   void startNewSession({required String sessionName, required String tag, required int durationMinutes, required TimerMode mode}) {
@@ -316,6 +343,20 @@ class TimerWidgetState extends State<TimerWidget> {
                     ),
                   ),
                 ),
+              // Small break indicator when in rest mode
+              if (widget.isBreak)
+                Positioned(
+                  top: 16,
+                  right: 16,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white12,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text('Break', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  ),
+                ),
             ],
           ),
         ),
@@ -483,4 +524,4 @@ class TimerWidgetState extends State<TimerWidget> {
       ],
     );
   }
-} 
+}
